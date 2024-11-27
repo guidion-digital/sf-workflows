@@ -1,0 +1,34 @@
+name: Deploy sf-home to the <inputs.environment_name> environment
+
+on:
+  workflow_call:
+    inputs:
+      environment_name:
+        description: The GH environment holding information needed to deploy
+        type: string
+        required: true
+
+jobs:
+  deploy:
+    environment: ${{ inputs.environment_name }}
+    runs-on: ubuntu-latest
+    container: ghcr.io/guidion-digital/salesforce-ant:0.0.2
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID || '' }}
+      SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY || '' }}
+      SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID || '' }}
+      SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY || '' }}
+      SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
+      SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS || '' }}
+      SF_DEVHUB_SCRATCH_ALIAS: ${{ vars.SF_DEVHUB_SCRATCH_ALIAS || '' }}
+      SF_DEVHUB_USERNAME: ${{ vars.SF_DEVHUB_USERNAME || '' }}
+      SF_LOGIN_URL: ${{ vars.SF_LOGIN_URL }}
+      SF_TESTLEVEL: ${{ vars.SF_TESTLEVEL || '' }}
+      SF_USERNAME: ${{ vars.SF_USERNAME }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+      - name: Start Deploy
+        run: ant deployCode
