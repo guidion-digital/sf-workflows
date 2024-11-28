@@ -7,6 +7,11 @@ on:
         description: The GH environment holding information needed to deploy
         type: string
         required: true
+      branch:
+        description: The branch to checkout
+        type: string
+        required: false
+        default: ${{ github.ref_name }}
 
 jobs:
   deploy:
@@ -30,5 +35,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ inputs.branch }}
       - name: Start Deploy
         run: ant deployCode
