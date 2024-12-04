@@ -1,0 +1,86 @@
+# The job calling this workflow requires the following permissions:
+#
+#  - contents: write
+#  - actions: write
+#  - attestations: write
+
+
+name: Deploy a Salesforce package
+
+on:
+  workflow_call:
+    inputs:
+      SF_DEVHUB_ALIAS:
+        type: string
+        required: false
+      SF_DEVHUB_SCRATCH_ALIAS:
+        type: string
+        required: false
+      SF_DEVHUB_USERNAME:
+        type: string
+        required: false
+      SF_LOGIN_URL:
+        type: string
+        required: true
+      SF_TESTLEVEL:
+        type: string
+        required: false
+      SF_USERNAME:
+        type: string
+        required: true
+    secrets:
+      SF_CLIENT_ID:
+        required: true
+      SF_CLIENT_KEY:
+        required: false
+      SF_DEVHUB_CLIENT_ID:
+        required: false
+      SF_DEVHUB_CLIENT_KEY:
+        required: false
+      SF_PASSWORD:
+        required: true
+      NPM_TOKEN:
+        required: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID || '' }}
+      SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY || '' }}
+      SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID || '' }}
+      SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY || '' }}
+      SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
+      SF_DEVHUB_ALIAS: ${{ inputs.SF_DEVHUB_ALIAS || '' }}
+      SF_DEVHUB_SCRATCH_ALIAS: ${{ inputs.SF_DEVHUB_SCRATCH_ALIAS || '' }}
+      SF_DEVHUB_USERNAME: ${{ inputs.SF_DEVHUB_USERNAME || '' }}
+      SF_LOGIN_URL: ${{ inputs.SF_LOGIN_URL }}
+      SF_TESTLEVEL: ${{ inputs.SF_TESTLEVEL || '' }}
+      SF_USERNAME: ${{ inputs.SF_USERNAME }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+      - name: Cache node modules
+        id: cache-nodemodules
+        uses: actions/cache@v4.1.2
+        env:
+          cache-name: cache-node-modules
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+            ${{ runner.os }}-build-
+            ${{ runner.os }}-
+      - if: ${{ steps.cache-nodemodules.outputs.cache-hit != 'true' }}
+        name: List the state of node modules
+        continue-on-error: true
+        run: npm list
+      - name: Install dependencies
+        run: |
+            echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+            npm install
+      - name: Deploy package
+        run: npx semantic-release -e @gdn/semantic-release-sfdx-config
