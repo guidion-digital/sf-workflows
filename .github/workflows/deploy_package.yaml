@@ -10,6 +10,11 @@ name: Deploy a Salesforce package
 on:
   workflow_call:
     inputs:
+      slack_channel:
+        description: Channel to notifify about a deployment
+        type: string
+        required: false
+        default: ''
       SF_DEVHUB_ALIAS:
         type: string
         required: false
@@ -84,3 +89,26 @@ jobs:
             npm install
       - name: Deploy package
         run: npx semantic-release -e @gdn/semantic-release-sfdx-config
+      - name: Notify devs
+        if: ${{ inputs.slack_channel != '' }}
+        run: |
+          curl -H "Content-type: application/json" \
+            --data '{"channel":"${{ inputs.slack_channel }}","blocks":[{
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "A deploy for ${{ github.repository }} is has completed with the result: ${{ github.action_status }}"},
+                        "accessory": {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Go to the pipeline",
+                                "emoji": true
+                            },
+                            "url": "${{github.server_url}}/${{github.repository}}/actions/runs/${{github.run_id}}",
+                            "action_id": "view-pipeline"
+                        }
+                      }]
+                    }' \
+            -H "Authorization: Bearer ${{ secrets.slack_token }}" \
+            -X POST https://slack.com/api/chat.postMessage
