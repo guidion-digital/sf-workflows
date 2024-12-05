@@ -91,24 +91,8 @@ jobs:
         run: npx semantic-release -e @gdn/semantic-release-sfdx-config
       - name: Notify devs
         if: ${{ inputs.slack_channel != '' }}
-        run: |
-          curl -H "Content-type: application/json" \
-            --data '{"channel":"${{ inputs.slack_channel }}","blocks":[{
-                      "type": "section",
-                      "text": {
-                        "type": "mrkdwn",
-                        "text": "A deploy for ${{ github.repository }} is has completed with the result: ${{ github.action_status }}"},
-                        "accessory": {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Go to the pipeline",
-                                "emoji": true
-                            },
-                            "url": "${{github.server_url}}/${{github.repository}}/actions/runs/${{github.run_id}}",
-                            "action_id": "view-pipeline"
-                        }
-                      }]
-                    }' \
-            -H "Authorization: Bearer ${{ secrets.slack_token }}" \
-            -X POST https://slack.com/api/chat.postMessage
+        uses: guidion-digital/slack-notifications@v1
+        with:
+          slack_channel: team-tectonic
+          slack_token: ${{ secrets.SLACK_TOKEN }}
+          workflow_status: ${{ job.status }}
