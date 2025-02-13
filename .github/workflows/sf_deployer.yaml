@@ -1,0 +1,88 @@
+name: Deploy sf-home to the <inputs.environment_name> environment
+
+on:
+  workflow_call:
+    inputs:
+      slack_channel:
+        description: Channel to notifify about a deployment
+        type: string
+        required: false
+        default: ''
+      environment_name:
+        description: GH environment holding information needed to deploy
+        type: string
+        required: true
+      branch:
+        description: Banch to checkout
+        type: string
+        required: false
+        default: ${{ github.ref_name }}
+      source_dir:
+        description: Directory containing the source code to deploy
+        type: string
+        required: false
+        default: src
+      sf_login_url:
+        description: Salesforce login URL
+        type: string
+        required: false
+      sf_username:
+        description: Salesforce username
+        type: string
+        required: false
+      sf_consumer_key:
+        description: Salesforce consumer key
+        type: string
+        required: false
+      jwt_key:
+        description: Salesforce JWT key
+        type: string
+        required: false
+      sf_testlevel:
+        description: Salesforce test level
+        type: string
+        required: false
+
+jobs:
+  deploy:
+    environment: ${{ inputs.environment_name }}
+    runs-on: ubuntu-latest
+    container: salesforce/cli:latest-slim
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SF_LOGIN_URL: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
+      SF_USERNAME: ${{ inputs.sf_username || vars.SF_USERNAME }}
+      SF_CONSUMER_KEY: ${{ inputs.sf_consumer_key || secrets.SF_CONSUMER_KEY }}
+      JWT_KEY: ${{ inputs.jwt_key || secrets.JWT_KEY }}
+      SF_TESTLEVEL: ${{ inputs.sf_testlevel || vars.SF_TESTLEVEL || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ inputs.branch }}
+      - name: Authenticate
+        run: |
+          echo "Authenticating to Salesforce org..."
+          echo "$JWT_KEY" > jwt-key.key
+          sf org login jwt --instance-url "$SF_LOGIN_URL" \
+            --instance-url "$SF_LOGIN_URL" \
+            --username "$SF_USERNAME" \
+            --client-id "$SF_CONSUMER_KEY" \
+            --jwt-key-file jwt-key.key \
+            --alias default
+          rm jwt-key.key
+      - name: Deploy
+        run: |
+          echo "Deploying ${{ inputs.source_dir }}"
+          if [ -n "$SF_TESTLEVEL" ]; then
+            sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level "$SF_TESTLEVEL"
+          else
+            sf project deploy start --source-dir ${{ inputs.source_dir }}
+          fi
+      - name: Notify devs
+        if: ${{ inputs.slack_channel != '' }}
+        uses: guidion-digital/slack-notifications@v1
+        with:
+          slack_channel: team-tectonic
+          slack_token: ${{ secrets.SLACK_TOKEN }}
+          workflow_status: ${{ job.status }}
