@@ -74,9 +74,9 @@ jobs:
         run: |
           echo "Deploying ${{ inputs.source_dir }}"
           if [ -n "$SF_TESTLEVEL" ]; then
-            sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level "$SF_TESTLEVEL"
+            sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level "$SF_TESTLEVEL" --target-org default
           else
-            sf project deploy start --source-dir ${{ inputs.source_dir }}
+            sf project deploy start --source-dir ${{ inputs.source_dir }} --target-org default
           fi
       - name: Notify devs
         if: ${{ inputs.slack_channel != '' }}
