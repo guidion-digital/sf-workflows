@@ -63,7 +63,7 @@ jobs:
         run: |
           echo "Authenticating to Salesforce org..."
           echo "$JWT_KEY" > jwt-key.key
-          sf org login jwt --instance-url "$SF_LOGIN_URL" \
+          sf org login jwt \
             --instance-url "$SF_LOGIN_URL" \
             --username "$SF_USERNAME" \
             --client-id "$SF_CONSUMER_KEY" \
