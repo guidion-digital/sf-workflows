@@ -42,6 +42,11 @@ on:
         description: Salesforce test level
         type: string
         required: false
+      sf_target_org:
+        description: Salesforce target org (used for the alias)
+        type: string
+        required: false
+        default: default
 
 jobs:
   deploy:
@@ -68,15 +73,15 @@ jobs:
             --username "$SF_USERNAME" \
             --client-id "$SF_CONSUMER_KEY" \
             --jwt-key-file jwt-key.key \
-            --alias default
+            --alias ${{ inputs.sf_target_org }}
           rm jwt-key.key
       - name: Deploy
         run: |
           echo "Deploying ${{ inputs.source_dir }}"
           if [ -n "$SF_TESTLEVEL" ]; then
-            sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level "$SF_TESTLEVEL" --target-org default
+            sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level "$SF_TESTLEVEL" --target-org ${{ inputs.sf_target_org }}
           else
-            sf project deploy start --source-dir ${{ inputs.source_dir }} --target-org default
+            sf project deploy start --source-dir ${{ inputs.source_dir }} --target-org ${{ inputs.sf_target_org }}
           fi
       - name: Notify devs
         if: ${{ inputs.slack_channel != '' }}
