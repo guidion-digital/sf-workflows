@@ -34,7 +34,7 @@ on:
         description: Salesforce consumer key
         type: string
         required: false
-      jwt_key:
+      jwt_key_b64:
         description: Salesforce JWT key
         type: string
         required: false
@@ -57,7 +57,7 @@ jobs:
       SF_LOGIN_URL: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
       SF_USERNAME: ${{ inputs.sf_username || vars.SF_USERNAME }}
       SF_CLIENT_ID: ${{ inputs.sf_client_id || secrets.SF_CLIENT_ID }}
-      JWT_KEY: ${{ inputs.jwt_key || secrets.JWT_KEY }}
+      JWT_KEY_B64: ${{ inputs.jwt_key_b64 || secrets.JWT_KEY_B64 }}
       SF_TESTLEVEL: ${{ inputs.sf_testlevel || vars.SF_TESTLEVEL || '' }}
     steps:
       - name: Checkout
