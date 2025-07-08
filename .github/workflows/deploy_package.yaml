@@ -10,11 +10,10 @@ name: Deploy a Salesforce package
 on:
   workflow_call:
     inputs:
-      slack_channel:
-        description: Channel to notifify about a deployment
+      environment_name:
+        description: GH environment holding information needed to deploy
         type: string
-        required: false
-        default: ''
+        required: true
       SF_DEVHUB_ALIAS:
         type: string
         required: false
@@ -26,16 +25,21 @@ on:
         required: false
       SF_LOGIN_URL:
         type: string
-        required: true
+        required: false
       SF_TESTLEVEL:
         type: string
         required: false
       SF_USERNAME:
         type: string
-        required: true
+        required: false
+      SLACK_CHANNEL:
+        description: Channel to notifify about a deployment 
+        type: string
+        required: false
+        default: "team-tectonic"
     secrets:
       SF_CLIENT_ID:
-        required: true
+        required: false
       SF_CLIENT_KEY:
         required: false
       SF_DEVHUB_CLIENT_ID:
@@ -49,21 +53,23 @@ on:
 
 jobs:
   deploy:
+    environment: ${{ inputs.environment_name }}
     runs-on: ubuntu-latest
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID || '' }}
-      SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY || '' }}
-      SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID || '' }}
-      SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY || '' }}
-      SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
-      SF_DEVHUB_ALIAS: ${{ inputs.SF_DEVHUB_ALIAS || '' }}
-      SF_DEVHUB_SCRATCH_ALIAS: ${{ inputs.SF_DEVHUB_SCRATCH_ALIAS || '' }}
-      SF_DEVHUB_USERNAME: ${{ inputs.SF_DEVHUB_USERNAME || '' }}
+      SF_DEVHUB_ALIAS: ${{ inputs.SF_DEVHUB_ALIAS }}
+      SF_DEVHUB_SCRATCH_ALIAS: ${{ inputs.SF_DEVHUB_SCRATCH_ALIAS }}
+      SF_DEVHUB_USERNAME: ${{ inputs.SF_DEVHUB_USERNAME }}
       SF_LOGIN_URL: ${{ inputs.SF_LOGIN_URL }}
-      SF_TESTLEVEL: ${{ inputs.SF_TESTLEVEL || '' }}
+      SF_TESTLEVEL: ${{ inputs.SF_TESTLEVEL }}
       SF_USERNAME: ${{ inputs.SF_USERNAME }}
+      SLACK_CHANNEL: ${{ inputs.SLACK_CHANNEL }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+      SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY }}
+      SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+      SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY }}
+      SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
@@ -88,11 +94,6 @@ jobs:
             echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
             npm install
       - name: Deploy package
+        timeout-minutes: 45
         run: npx semantic-release -e @gdn/semantic-release-sfdx-config
-      - name: Notify devs
-        if: ${{ inputs.slack_channel != '' }}
-        uses: guidion-digital/slack-notifications@v1
-        with:
-          slack_channel: team-tectonic
-          slack_token: ${{ secrets.SLACK_TOKEN }}
-          workflow_status: ${{ job.status }}
+      
