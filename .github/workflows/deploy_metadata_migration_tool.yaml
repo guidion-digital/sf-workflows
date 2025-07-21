@@ -62,12 +62,12 @@ jobs:
       SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID || '' }}
       SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY || '' }}
       SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
-      SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS || '' }}
-      SF_DEVHUB_SCRATCH_ALIAS: ${{ vars.SF_DEVHUB_SCRATCH_ALIAS || '' }}
-      SF_DEVHUB_USERNAME: ${{ vars.SF_DEVHUB_USERNAME || '' }}
-      SF_LOGIN_URL: ${{ vars.SF_LOGIN_URL }}
-      SF_TESTLEVEL: ${{ vars.SF_TESTLEVEL || '' }}
-      SF_USERNAME: ${{ vars.SF_USERNAME }}
+      SF_DEVHUB_ALIAS: ${{ inputs.SF_DEVHUB_ALIAS || '' }}
+      SF_DEVHUB_SCRATCH_ALIAS: ${{ inputs.SF_DEVHUB_SCRATCH_ALIAS || '' }}
+      SF_DEVHUB_USERNAME: ${{ inputs.SF_DEVHUB_USERNAME || '' }}
+      SF_LOGIN_URL: ${{ inputs.SF_LOGIN_URL }}
+      SF_TESTLEVEL: ${{ inputs.SF_TESTLEVEL || '' }}
+      SF_USERNAME: ${{ inputs.SF_USERNAME }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
