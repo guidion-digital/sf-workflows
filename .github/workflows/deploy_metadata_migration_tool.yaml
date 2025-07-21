@@ -17,6 +17,37 @@ on:
         type: string
         required: false
         default: ${{ github.ref_name }}
+      SF_DEVHUB_ALIAS:
+        type: string
+        required: false
+      SF_DEVHUB_SCRATCH_ALIAS:
+        type: string
+        required: false
+      SF_DEVHUB_USERNAME:
+        type: string
+        required: false
+      SF_LOGIN_URL:
+        type: string
+        required: false
+      SF_TESTLEVEL:
+        type: string
+        required: false
+      SF_USERNAME:
+        type: string
+        required: false
+    secrets:
+      SF_CLIENT_ID:
+        required: false
+      SF_CLIENT_KEY:
+        required: false
+      SF_DEVHUB_CLIENT_ID:
+        required: false
+      SF_DEVHUB_CLIENT_KEY:
+        required: false
+      SF_PASSWORD:
+        required: true
+      NPM_TOKEN:
+        required: false
 
 jobs:
   deploy:
