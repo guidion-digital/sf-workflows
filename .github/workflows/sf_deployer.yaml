@@ -25,19 +25,19 @@ on:
       sf_login_url:
         description: Salesforce login URL
         type: string
-        required: false
+        required: true
       sf_username:
         description: Salesforce username
         type: string
-        required: false
+        required: true
       sf_client_id:
         description: Salesforce consumer key
         type: string
-        required: false
+        required: true
       jwt_key_b64:
         description: Salesforce JWT key
         type: string
-        required: false
+        required: true
       sf_testlevel:
         description: Salesforce test level
         type: string
