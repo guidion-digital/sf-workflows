@@ -94,6 +94,6 @@ jobs:
             echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
             npm install
       - name: Deploy package
-        timeout-minutes: 45
+        timeout-minutes: 60
         run: npx semantic-release -e @gdn/semantic-release-sfdx-config
       
