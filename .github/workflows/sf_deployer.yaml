@@ -34,18 +34,6 @@ on:
         description: Salesforce consumer key
         type: string
         required: false
-      sf_client_id_dev:
-        description: Salesforce consumer key
-        type: string
-        required: false
-      sf_client_id_acc:
-        description: Salesforce consumer key
-        type: string
-        required: false
-      sf_client_id_prod:
-        description: Salesforce consumer key
-        type: string
-        required: false
       jwt_key_b64:
         description: Salesforce JWT key
         type: string
@@ -59,6 +47,16 @@ on:
         type: string
         required: false
         default: default
+    secrets:       
+      sf_client_id_dev:
+        description: Salesforce consumer key
+        required: false
+      sf_client_id_acc:
+        description: Salesforce consumer key
+        required: false
+      sf_client_id_prod:
+        description: Salesforce consumer key
+        required: false
 
 jobs:
   deploy:
