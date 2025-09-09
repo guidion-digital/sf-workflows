@@ -48,7 +48,7 @@ on:
         required: false
         default: default
     secrets:       
-      sf_client_id:
+      SF_CLIENT_ID:
         description: Salesforce consumer key
         required: false
 
