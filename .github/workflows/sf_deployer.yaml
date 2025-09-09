@@ -51,6 +51,10 @@ on:
       SF_CLIENT_ID:
         description: Salesforce consumer key
         required: false
+      SF_CLIENT_KEY:
+        description: Salesforce consumer key
+        required: false
+
 
 jobs:
   deploy:
@@ -61,7 +65,7 @@ jobs:
       SF_LOGIN_URL: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
       SF_USERNAME: ${{ inputs.sf_username || vars.SF_USERNAME }}
       SF_CLIENT_ID: ${{ inputs.sf_client_id || secrets.SF_CLIENT_ID }}
-      JWT_KEY_B64: ${{ inputs.jwt_key_b64 || secrets.JWT_KEY_B64 }}
+      JWT_KEY_B64: ${{ inputs.jwt_key_b64 || secrets.JWT_KEY_B64 || secrets.SF_CLIENT_KEY }}
       SF_TESTLEVEL: ${{ inputs.sf_testlevel || vars.SF_TESTLEVEL || '' }}
     steps:
       - name: Checkout
