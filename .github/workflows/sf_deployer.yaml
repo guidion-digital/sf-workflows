@@ -54,6 +54,9 @@ on:
       SF_CLIENT_KEY:
         description: Salesforce consumer key
         required: false
+      SLACK_TOKEN:
+        description: Slack token
+        required: false
 
 
 jobs:
