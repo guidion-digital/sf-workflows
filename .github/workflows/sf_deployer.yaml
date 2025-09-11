@@ -86,6 +86,13 @@ jobs:
             --jwt-key-file jwt-key.key \
             --alias ${{ inputs.sf_target_org }}
           rm jwt-key.key
+      - name: Notify devs
+        if: ${{ inputs.slack_channel != '' }}
+        uses: guidion-digital/slack-notifications@v1
+        with:
+          slack_channel: team-tectonic
+          slack_token: ${{ secrets.SLACK_TOKEN }}
+          workflow_status: ${{ job.status }}
       - name: Deploy
         run: |
           echo "Deploying ${{ inputs.source_dir }}"
@@ -94,10 +101,3 @@ jobs:
           else # Do not run any tests
             sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level NoTestRun --target-org ${{ inputs.sf_target_org }}
           fi  
-      - name: Notify devs
-        if: ${{ inputs.slack_channel != '' }}
-        uses: guidion-digital/slack-notifications@v1
-        with:
-          slack_channel: team-cloud-infra
-          slack_token: ${{ secrets.SLACK_TOKEN }}
-          workflow_status: ${{ job.status }}
