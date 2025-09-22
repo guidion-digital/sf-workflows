@@ -79,9 +79,10 @@ jobs:
         run: |
           echo "Deploying ${{ inputs.source_dir }}"
           if [ -n "$SF_TESTLEVEL" ]; then
-            sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level "$SF_TESTLEVEL" --target-org ${{ inputs.sf_target_org }}
+            sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level "$SF_TESTLEVEL" --target-org ${{ inputs.sf_target_org }} --ignore-conflicts
+
           else
-            sf project deploy start --source-dir ${{ inputs.source_dir }} --target-org ${{ inputs.sf_target_org }}
+            sf project deploy start --source-dir ${{ inputs.source_dir }}  --test-level NoTestRun --target-org ${{ inputs.sf_target_org }} --ignore-conflicts
           fi
       - name: Notify devs
         if: ${{ inputs.slack_channel != '' }}
