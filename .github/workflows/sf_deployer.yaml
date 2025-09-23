@@ -90,7 +90,7 @@ jobs:
         if: ${{ inputs.slack_channel != '' }}
         uses: guidion-digital/slack-notifications@v1
         with:
-          slack_channel: team-tectonic
+          slack_channel: ${{ inputs.slack_channel || vars.slack_channel || '' }}
           slack_token: ${{ secrets.SLACK_TOKEN }}
           workflow_status: ${{ job.status }}
       - name: Deploy
@@ -100,4 +100,4 @@ jobs:
             sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level $SF_TESTLEVEL --target-org ${{ inputs.sf_target_org }}
           else # Do not run any tests
             sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level NoTestRun --target-org ${{ inputs.sf_target_org }}
-          fi  
+          fi
