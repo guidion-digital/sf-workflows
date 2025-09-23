@@ -57,12 +57,18 @@ on:
       SLACK_TOKEN:
         description: Slack token
         required: false
+    outputs:
+      deploy-result:
+        description: "Output from deploy GH Actions"
+        value: ${{ jobs.deploy.outputs.result }}
 
 
 jobs:
   deploy:
     environment: ${{ inputs.environment_name }}
     runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.deploy.outputs.terraform }}
     container: salesforce/cli:latest-slim
     env:
       SF_LOGIN_URL: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
@@ -87,6 +93,7 @@ jobs:
             --alias ${{ inputs.sf_target_org }}
           rm jwt-key.key
       - name: Deploy
+        id: deploy
         run: |
           echo "Deploying ${{ inputs.source_dir }}"
           if [ -n "$SF_TESTLEVEL" ]; then
@@ -95,18 +102,12 @@ jobs:
           else
             sf project deploy start --source-dir ${{ inputs.source_dir }}  --test-level NoTestRun --target-org ${{ inputs.sf_target_org }} --ignore-conflicts
           fi
-      - name: Notify devs
-        if: ${{ inputs.slack_channel != '' }}
-        uses: guidion-digital/slack-notifications/.github/workflows/slack-notify.yml@create-workflow-with-custom-container
-        with:
-          slack_channel: ${{ inputs.slack_channel || vars.slack_channel || '' }}
-          slack_token: ${{ secrets.SLACK_TOKEN }}
-          workflow_status: ${{ job.status }}
-      - name: Deploy
-        run: |
-          echo "Deploying ${{ inputs.source_dir }}"
-          if [ -n "$SF_TESTLEVEL" ]; then
-            sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level $SF_TESTLEVEL --target-org ${{ inputs.sf_target_org }}
-          else # Do not run any tests
-            sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level NoTestRun --target-org ${{ inputs.sf_target_org }}
-          fi
+  notify:
+    needs: deploy
+    secrets: inherit
+    uses: guidion-digital/slack-notifications/.github/workflows/slack-notify.yml@create-workflow-with-custom-container
+    with:
+      slack_channel: ${{ inputs.slack_channel || vars.slack_channel || '' }}
+      # slack_token: ${{ secrets.slack_token }}
+      workflow_status: ${{ needs.deploy.outputs.result }}
+
