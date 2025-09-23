@@ -97,7 +97,7 @@ jobs:
           fi
       - name: Notify devs
         if: ${{ inputs.slack_channel != '' }}
-        uses: guidion-digital/slack-notifications@v1
+        uses: guidion-digital/slack-notifications@codex/create-workflow-with-custom-container
         with:
           slack_channel: ${{ inputs.slack_channel || vars.slack_channel || '' }}
           slack_token: ${{ secrets.SLACK_TOKEN }}
