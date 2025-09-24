@@ -155,6 +155,6 @@ jobs:
       - name: Notify devs
         uses: guidion-digital/slack-notifications@v1
         with:
-          slack_channel: team-tectonic
+          slack_channel: ${{ inputs.slack_channel || vars.slack_channel || '' }}
           slack_token: ${{ secrets.SLACK_TOKEN }}
           workflow_status: ${{ needs.deploy.outputs.result }}
