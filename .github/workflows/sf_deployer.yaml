@@ -60,18 +60,18 @@ on:
       SLACK_TOKEN:
         description: Slack token
         required: false
-    outputs:
-      deploy-result:
-        description: "Output from deploy GH Actions"
-        value: ${{ jobs.deploy.outputs.result }}
+    # outputs:
+    #   deploy-result:
+    #     description: "Output from deploy GH Actions"
+    #     value: ${{ jobs.deploy.outputs.result }}
 
 
 jobs:
   deploy:
     environment: ${{ inputs.environment_name }}
     runs-on: ubuntu-latest
-    outputs:
-      result: ${{ steps.deploy.outputs.deploy }}
+    # outputs:
+    #   result: ${{ steps.deploy.outputs.deploy }}
     container: salesforce/cli:latest-slim
     env:
       SF_LOGIN_URL: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
@@ -113,7 +113,7 @@ jobs:
             echo "test_classes=" >> $GITHUB_OUTPUT
           fi
       - name: Deploy
-        id: deploy
+        # id: deploy
         run: |
           echo "Deploying ${{ inputs.source_dir }}"
           echo "SF_TESTLEVEL='${SF_TESTLEVEL-<unset>}'"
@@ -160,4 +160,4 @@ jobs:
         with:
           slack_channel: ${{ inputs.slack_channel || vars.slack_channel || '' }}
           slack_token: ${{ secrets.SLACK_TOKEN }}
-          workflow_status: ${{ needs.deploy.outputs.result }}
+          workflow_status: ${{ needs.deploy.result }}
