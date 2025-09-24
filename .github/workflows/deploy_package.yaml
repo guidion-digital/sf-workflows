@@ -96,4 +96,3 @@ jobs:
       - name: Deploy package
         timeout-minutes: 60
         run: npx semantic-release -e @gdn/semantic-release-sfdx-config
-      

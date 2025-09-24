@@ -48,6 +48,7 @@ on:
         required: false
         default: default
     secrets:
+      # These are needed when using organization secrets to further define which secret to passthrough, ie: SF_CLIENT_KEY_DEV
       SF_CLIENT_ID:
         description: Salesforce consumer key
         required: false
@@ -60,18 +61,11 @@ on:
       SLACK_TOKEN:
         description: Slack token
         required: false
-    # outputs:
-    #   deploy-result:
-    #     description: "Output from deploy GH Actions"
-    #     value: ${{ jobs.deploy.outputs.result }}
-
 
 jobs:
   deploy:
     environment: ${{ inputs.environment_name }}
     runs-on: ubuntu-latest
-    # outputs:
-    #   result: ${{ steps.deploy.outputs.deploy }}
     container: salesforce/cli:latest-slim
     env:
       SF_LOGIN_URL: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
@@ -113,7 +107,6 @@ jobs:
             echo "test_classes=" >> $GITHUB_OUTPUT
           fi
       - name: Deploy
-        # id: deploy
         run: |
           echo "Deploying ${{ inputs.source_dir }}"
           echo "SF_TESTLEVEL='${SF_TESTLEVEL-<unset>}'"
