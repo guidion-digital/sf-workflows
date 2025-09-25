@@ -68,7 +68,7 @@ jobs:
     environment: ${{ inputs.environment_name }}
     runs-on: ubuntu-latest
     outputs:
-      result: ${{ steps.deploy.outputs.terraform }}
+      result: ${{ steps.deploy.outputs.deploy }}
     container: salesforce/cli:latest-slim
     env:
       SF_LOGIN_URL: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
@@ -105,8 +105,13 @@ jobs:
   notify:
     needs: deploy
     secrets: inherit
-    uses: guidion-digital/slack-notifications/.github/workflows/slack-notify.yaml@create-workflow-with-custom-container
-    with:
-      slack_channel: ${{ inputs.slack_channel || vars.slack_channel || '' }}
-      # slack_token: ${{ secrets.slack_token }}
-      workflow_status: ${{ needs.deploy.outputs.result }}
+    runs-on: ubuntu-latest
+    container: python:3-slim
+    steps:
+      - name: Notify devs
+        if: ${{ inputs.slack_channel != '' }}
+        uses: guidion-digital/slack-notifications@v1
+        with:
+          slack_channel: team-tectonic
+          slack_token: ${{ secrets.SLACK_TOKEN }}
+          workflow_status: ${{ needs.deploy.outputs.result }}
