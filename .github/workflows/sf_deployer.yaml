@@ -78,6 +78,7 @@ jobs:
       - name: Deploy
         run: |
           echo "Deploying ${{ inputs.source_dir }}"
+          echo "SF_TESTLEVEL='${SF_TESTLEVEL-<unset>}'"
           if [ -n "$SF_TESTLEVEL" ]; then
             if [ "$SF_TESTLEVEL" = "RunSpecifiedTests" ]; then
               sf project deploy start \
