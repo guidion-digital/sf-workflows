@@ -75,18 +75,46 @@ jobs:
             --jwt-key-file jwt-key.key \
             --alias ${{ inputs.sf_target_org }}
           rm jwt-key.key
+      - name: Get Test Classes from Test Suite
+        id: get_tests
+        run: |
+          echo "Retrieving test classes from sf_scripts test suite..."
+          if [ -n "$SF_TESTLEVEL" ] && [ "$SF_TESTLEVEL" = "RunSpecifiedTests" ]; then
+            # Query the test suite to get test class names
+            TEST_CLASSES=$(sf data query \
+              --query "SELECT Id, ApexClass.Name FROM TestSuiteMembership where ApexTestSuite.TestSuiteName = 'sf_scripts'" \
+              --use-tooling-api \
+              --target-org "${{ inputs.sf_target_org }}" \
+              --json | jq -r '.result.records[].ApexClass.Name' | tr '\n' ',' | sed 's/,$//')
+            
+            echo "Found test classes: $TEST_CLASSES"
+            echo "test_classes=$TEST_CLASSES" >> $GITHUB_OUTPUT
+          else
+            echo "test_classes=" >> $GITHUB_OUTPUT
+          fi
       - name: Deploy
         run: |
           echo "Deploying ${{ inputs.source_dir }}"
           echo "SF_TESTLEVEL='${SF_TESTLEVEL-<unset>}'"
           if [ -n "$SF_TESTLEVEL" ]; then
             if [ "$SF_TESTLEVEL" = "RunSpecifiedTests" ]; then
-              sf project deploy start \
-                --source-dir "${{ inputs.source_dir }}" \
-                --test-level RunSpecifiedTests \
-                --suite-names "sf_scripts" \
-                --target-org "${{ inputs.sf_target_org }}" \
-                --ignore-conflicts
+              TEST_CLASSES="${{ steps.get_tests.outputs.test_classes }}"
+              if [ -n "$TEST_CLASSES" ]; then
+                echo "Running tests: $TEST_CLASSES"
+                sf project deploy start \
+                  --source-dir "${{ inputs.source_dir }}" \
+                  --test-level RunSpecifiedTests \
+                  --tests "$TEST_CLASSES" \
+                  --target-org "${{ inputs.sf_target_org }}" \
+                  --ignore-conflicts
+              else
+                echo "No test classes found in sf_scripts test suite, falling back to NoTestRun"
+                sf project deploy start \
+                  --source-dir "${{ inputs.source_dir }}" \
+                  --test-level NoTestRun \
+                  --target-org "${{ inputs.sf_target_org }}" \
+                  --ignore-conflicts
+              fi
             else
               sf project deploy start \
                 --source-dir "${{ inputs.source_dir }}" \
