@@ -85,7 +85,7 @@ jobs:
               --query "SELECT Id, ApexClass.Name FROM TestSuiteMembership where ApexTestSuite.TestSuiteName = 'sf_scripts'" \
               --use-tooling-api \
               --target-org "${{ inputs.sf_target_org }}" \
-              --json | jq -r '.result.records[].ApexClass.Name' | tr '\n' ',' | sed 's/,$//')
+              --json | jq -r '.result.records[].ApexClass.Name' | tr '\n' ' ' | sed 's/ $//')
             
             echo "Found test classes: $TEST_CLASSES"
             echo "test_classes=$TEST_CLASSES" >> $GITHUB_OUTPUT
