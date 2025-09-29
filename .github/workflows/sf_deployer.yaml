@@ -47,12 +47,15 @@ on:
         type: string
         required: false
         default: default
-    secrets:       
+    secrets:
       SF_CLIENT_ID:
         description: Salesforce consumer key
         required: false
       SF_CLIENT_KEY:
         description: Salesforce consumer key
+        required: false
+      JWT_KEY_B64:
+        description: Salesforce JWT key (base64 encoded)
         required: false
       SLACK_TOKEN:
         description: Slack token
