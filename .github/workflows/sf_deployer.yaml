@@ -81,6 +81,8 @@ jobs:
         uses: actions/checkout@v4.2.2
         with:
           ref: ${{ inputs.branch }}
+      - name: Initialize deployment result
+        run: echo "DEPLOY_RESULT=not_set" >> $GITHUB_ENV
       - name: Authenticate
         run: |
           echo "Authenticating to Salesforce org..."
@@ -94,59 +96,61 @@ jobs:
           rm jwt-key.key
       - name: Get Test Classes from Test Suite
         id: get_tests
+        if: env.SF_TESTLEVEL == 'RunSpecifiedTests'
         run: |
           echo "Retrieving test classes from sf_scripts test suite..."
-          if [ -n "$SF_TESTLEVEL" ] && [ "$SF_TESTLEVEL" = "RunSpecifiedTests" ]; then
-            # Query the test suite to get test class names
-            TEST_CLASSES=$(sf data query \
-              --query "SELECT Id, ApexClass.Name FROM TestSuiteMembership where ApexTestSuite.TestSuiteName = 'sf_scripts'" \
-              --use-tooling-api \
-              --target-org "${{ inputs.sf_target_org }}" \
-              --json | jq -r '.result.records[].ApexClass.Name' | tr '\n' ' ' | sed 's/ $//')
-            
-            echo "Found test classes: $TEST_CLASSES"
-            echo "test_classes=$TEST_CLASSES" >> $GITHUB_OUTPUT
-          else
-            echo "test_classes=" >> $GITHUB_OUTPUT
-          fi
-      - name: Deploy
-        id: deploy
+          TEST_CLASSES=$(sf data query \
+            --query "SELECT Id, ApexClass.Name FROM TestSuiteMembership where ApexTestSuite.TestSuiteName = 'sf_scripts'" \
+            --use-tooling-api \
+            --target-org "${{ inputs.sf_target_org }}" \
+            --json | jq -r '.result.records[].ApexClass.Name' | tr '\n' ' ' | sed 's/ $//')
+
+          echo "Found test classes: ${TEST_CLASSES:-<none>}"
+          echo "test_classes=$TEST_CLASSES" >> $GITHUB_OUTPUT
+      - name: Deploy with specified tests
+        if: env.SF_TESTLEVEL == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes != ''
         run: |
-          echo "Deploying ${{ inputs.source_dir }}"
-          echo "SF_TESTLEVEL='${SF_TESTLEVEL-<unset>}'"
-          if [ -n "$SF_TESTLEVEL" ]; then
-            if [ "$SF_TESTLEVEL" = "RunSpecifiedTests" ]; then
-              TEST_CLASSES="${{ steps.get_tests.outputs.test_classes }}"
-              if [ -n "$TEST_CLASSES" ]; then
-                echo "Running tests: $TEST_CLASSES"
-                sf project deploy start \
-                  --source-dir "${{ inputs.source_dir }}" \
-                  --test-level RunSpecifiedTests \
-                  --tests "$TEST_CLASSES" \
-                  --target-org "${{ inputs.sf_target_org }}" \
-                  --ignore-conflicts
-              else
-                echo "No test classes found in sf_scripts test suite, falling back to NoTestRun"
-                sf project deploy start \
-                  --source-dir "${{ inputs.source_dir }}" \
-                  --test-level NoTestRun \
-                  --target-org "${{ inputs.sf_target_org }}" \
-                  --ignore-conflicts
-              fi
-            else
-              sf project deploy start \
-                --source-dir "${{ inputs.source_dir }}" \
-                --test-level "$SF_TESTLEVEL" \
-                --target-org "${{ inputs.sf_target_org }}" \
-                --ignore-conflicts
-            fi
-          else
-            sf project deploy start \
-              --source-dir "${{ inputs.source_dir }}" \
-              --test-level NoTestRun \
-              --target-org "${{ inputs.sf_target_org }}" \
-              --ignore-conflicts
-          fi
+          echo "Deploying ${{ inputs.source_dir }} with specified tests"
+          sf project deploy start \
+            --source-dir "${{ inputs.source_dir }}" \
+            --test-level RunSpecifiedTests \
+            --tests "${{ steps.get_tests.outputs.test_classes }}" \
+            --target-org "${{ inputs.sf_target_org }}" \
+            --ignore-conflicts
+          echo "DEPLOY_RESULT=RunSpecifiedTests" >> $GITHUB_ENV
+      - name: Deploy without tests (no suite tests found)
+        if: env.SF_TESTLEVEL == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes == ''
+        run: |
+          echo "No test classes found in sf_scripts test suite, falling back to NoTestRun"
+          sf project deploy start \
+            --source-dir "${{ inputs.source_dir }}" \
+            --test-level NoTestRun \
+            --target-org "${{ inputs.sf_target_org }}" \
+            --ignore-conflicts
+          echo "DEPLOY_RESULT=RunSpecifiedTestsFallback" >> $GITHUB_ENV
+      - name: Deploy with custom test level
+        if: env.SF_TESTLEVEL != '' && env.SF_TESTLEVEL != 'RunSpecifiedTests'
+        run: |
+          echo "Deploying ${{ inputs.source_dir }} with custom test level '$SF_TESTLEVEL'"
+          sf project deploy start \
+            --source-dir "${{ inputs.source_dir }}" \
+            --test-level "$SF_TESTLEVEL" \
+            --target-org "${{ inputs.sf_target_org }}" \
+            --ignore-conflicts
+          echo "DEPLOY_RESULT=CustomTestLevel:${SF_TESTLEVEL}" >> $GITHUB_ENV
+      - name: Deploy without tests (default)
+        if: env.SF_TESTLEVEL == '' || env.SF_TESTLEVEL == null
+        run: |
+          echo "Deploying ${{ inputs.source_dir }} with NoTestRun"
+          sf project deploy start \
+            --source-dir "${{ inputs.source_dir }}" \
+            --test-level NoTestRun \
+            --target-org "${{ inputs.sf_target_org }}" \
+            --ignore-conflicts
+          echo "DEPLOY_RESULT=NoTestRun" >> $GITHUB_ENV
+      - name: Set deploy output
+        id: deploy
+        run: echo "deploy=${DEPLOY_RESULT}" >> $GITHUB_OUTPUT
 
   notify:
     needs: deploy
