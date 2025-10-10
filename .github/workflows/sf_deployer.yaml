@@ -47,6 +47,20 @@ on:
         type: string
         required: false
         default: default
+    secrets:
+      # These are needed when using organization secrets to further define which secret to passthrough, ie: SF_CLIENT_KEY_DEV
+      SF_CLIENT_ID:
+        description: Salesforce consumer key
+        required: false
+      SF_CLIENT_KEY:
+        description: Salesforce consumer key
+        required: false
+      JWT_KEY_B64:
+        description: Salesforce JWT key (base64 encoded)
+        required: false
+      SLACK_TOKEN:
+        description: Slack token
+        required: false
 
 jobs:
   deploy:
@@ -57,7 +71,7 @@ jobs:
       SF_LOGIN_URL: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
       SF_USERNAME: ${{ inputs.sf_username || vars.SF_USERNAME }}
       SF_CLIENT_ID: ${{ inputs.sf_client_id || secrets.SF_CLIENT_ID }}
-      JWT_KEY_B64: ${{ inputs.jwt_key_b64 || secrets.JWT_KEY_B64 }}
+      JWT_KEY_B64: ${{ inputs.jwt_key_b64 || secrets.JWT_KEY_B64 || secrets.SF_CLIENT_KEY }}
       SF_TESTLEVEL: ${{ inputs.sf_testlevel || vars.SF_TESTLEVEL || '' }}
     steps:
       - name: Checkout
@@ -75,19 +89,68 @@ jobs:
             --jwt-key-file jwt-key.key \
             --alias ${{ inputs.sf_target_org }}
           rm jwt-key.key
+      - name: Get Test Classes from Test Suite
+        id: get_tests
+        run: |
+          echo "Retrieving test classes from sf_scripts test suite..."
+          if [ -n "$SF_TESTLEVEL" ] && [ "$SF_TESTLEVEL" = "RunSpecifiedTests" ]; then
+            # Query the test suite to get test class names
+            TEST_CLASSES=$(sf data query \
+              --query "SELECT Id, ApexClass.Name FROM TestSuiteMembership where ApexTestSuite.TestSuiteName = 'sf_scripts'" \
+              --use-tooling-api \
+              --target-org "${{ inputs.sf_target_org }}" \
+              --json | jq -r '.result.records[].ApexClass.Name' | tr '\n' ' ' | sed 's/ $//')
+            
+            echo "Found test classes: $TEST_CLASSES"
+            echo "test_classes=$TEST_CLASSES" >> $GITHUB_OUTPUT
+          else
+            echo "test_classes=" >> $GITHUB_OUTPUT
+          fi
       - name: Deploy
         run: |
           echo "Deploying ${{ inputs.source_dir }}"
+          echo "SF_TESTLEVEL='${SF_TESTLEVEL-<unset>}'"
           if [ -n "$SF_TESTLEVEL" ]; then
-            sf project deploy start --source-dir ${{ inputs.source_dir }} --test-level "$SF_TESTLEVEL" --target-org ${{ inputs.sf_target_org }} --ignore-conflicts
-
+            if [ "$SF_TESTLEVEL" = "RunSpecifiedTests" ]; then
+              TEST_CLASSES="${{ steps.get_tests.outputs.test_classes }}"
+              if [ -n "$TEST_CLASSES" ]; then
+                echo "Running tests: $TEST_CLASSES"
+                sf project deploy start \
+                  --source-dir "${{ inputs.source_dir }}" \
+                  --test-level RunSpecifiedTests \
+                  --tests "$TEST_CLASSES" \
+                  --target-org "${{ inputs.sf_target_org }}" \
+                  --ignore-conflicts
+              else
+                echo "No test classes found in sf_scripts test suite, falling back to NoTestRun"
+                sf project deploy start \
+                  --source-dir "${{ inputs.source_dir }}" \
+                  --test-level NoTestRun \
+                  --target-org "${{ inputs.sf_target_org }}" \
+                  --ignore-conflicts
+              fi
+            else
+              sf project deploy start \
+                --source-dir "${{ inputs.source_dir }}" \
+                --test-level "$SF_TESTLEVEL" \
+                --target-org "${{ inputs.sf_target_org }}" \
+                --ignore-conflicts
+            fi
           else
-            sf project deploy start --source-dir ${{ inputs.source_dir }}  --test-level NoTestRun --target-org ${{ inputs.sf_target_org }} --ignore-conflicts
+            sf project deploy start \
+              --source-dir "${{ inputs.source_dir }}" \
+              --test-level NoTestRun \
+              --target-org "${{ inputs.sf_target_org }}" \
+              --ignore-conflicts
           fi
+
+  notify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
       - name: Notify devs
-        if: ${{ inputs.slack_channel != '' }}
         uses: guidion-digital/slack-notifications@v1
         with:
-          slack_channel: team-tectonic
+          slack_channel: ${{ inputs.slack_channel || vars.slack_channel || '' }}
           slack_token: ${{ secrets.SLACK_TOKEN }}
-          workflow_status: ${{ job.status }}
+          workflow_status: ${{ needs.deploy.result }}
