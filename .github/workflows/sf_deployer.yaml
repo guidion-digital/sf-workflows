@@ -121,7 +121,7 @@ jobs:
       - name: Deploy without tests (fallback)
         if: ${{ env.SF_TESTLEVEL == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes == '' }}
         run: |
-          echo "No test classes found in sf_scripts test suite, falling back to NoTestRun"
+          echo "No test classes found in sf_scripts test suite, falling back to RunLocalTests"
           sf project deploy start \
             --source-dir "${{ inputs.source_dir }}" \
             --test-level RunLocalTests \
