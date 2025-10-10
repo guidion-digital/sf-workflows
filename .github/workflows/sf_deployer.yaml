@@ -96,39 +96,34 @@ jobs:
         run: |
           echo "Deploying ${{ inputs.source_dir }}"
           echo "SF_TESTLEVEL='${SF_TESTLEVEL-<unset>}'"
-          if [ -n "$SF_TESTLEVEL" ]; then
-            if [ "$SF_TESTLEVEL" = "RunSpecifiedTests" ]; then
+          COMMAND=(
+            sf project deploy start
+            --source-dir "${{ inputs.source_dir }}"
+            --target-org "${{ inputs.sf_target_org }}"
+            --ignore-conflicts
+          )
+
+          case "${SF_TESTLEVEL:-}" in
+            RunSpecifiedTests)
               TEST_CLASSES="${{ steps.get_tests.outputs.test_classes }}"
               if [ -n "$TEST_CLASSES" ]; then
                 echo "Running tests: $TEST_CLASSES"
-                sf project deploy start \
-                  --source-dir "${{ inputs.source_dir }}" \
-                  --test-level RunSpecifiedTests \
-                  --tests "$TEST_CLASSES" \
-                  --target-org "${{ inputs.sf_target_org }}" \
-                  --ignore-conflicts
+                COMMAND+=(--test-level RunSpecifiedTests --tests "$TEST_CLASSES")
               else
                 echo "No test classes found in sf_scripts test suite, falling back to NoTestRun"
-                sf project deploy start \
-                  --source-dir "${{ inputs.source_dir }}" \
-                  --test-level NoTestRun \
-                  --target-org "${{ inputs.sf_target_org }}" \
-                  --ignore-conflicts
+                COMMAND+=(--test-level NoTestRun)
               fi
-            else
-              sf project deploy start \
-                --source-dir "${{ inputs.source_dir }}" \
-                --test-level "$SF_TESTLEVEL" \
-                --target-org "${{ inputs.sf_target_org }}" \
-                --ignore-conflicts
-            fi
-          else
-            sf project deploy start \
-              --source-dir "${{ inputs.source_dir }}" \
-              --test-level NoTestRun \
-              --target-org "${{ inputs.sf_target_org }}" \
-              --ignore-conflicts
-          fi
+              ;;
+            "")
+              COMMAND+=(--test-level NoTestRun)
+              ;;
+            *)
+              COMMAND+=(--test-level "$SF_TESTLEVEL")
+              ;;
+          esac
+
+          echo "Running: ${COMMAND[*]}"
+          "${COMMAND[@]}"
       - name: Notify devs
         if: ${{ inputs.slack_channel != '' }}
         uses: guidion-digital/slack-notifications@v1
