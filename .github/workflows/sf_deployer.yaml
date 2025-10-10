@@ -127,15 +127,6 @@ jobs:
             --test-level RunLocalTests \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
-      - name: Deploy with configured test level
-        if: ${{ env.SF_TESTLEVEL != '' && env.SF_TESTLEVEL != 'RunSpecifiedTests' }}
-        run: |
-          echo "Deploying ${{ inputs.source_dir }} with SF_TESTLEVEL='$SF_TESTLEVEL'"
-          sf project deploy start \
-            --source-dir "${{ inputs.source_dir }}" \
-            --test-level "$SF_TESTLEVEL" \
-            --target-org "${{ inputs.sf_target_org }}" \
-            --ignore-conflicts
       - name: Deploy without tests when NoTestRun is set
         if: ${{ env.SF_TESTLEVEL == 'NoTestRun' }}
         run: |
