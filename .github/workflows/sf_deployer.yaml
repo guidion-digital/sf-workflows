@@ -124,7 +124,7 @@ jobs:
           echo "No test classes found in sf_scripts test suite, falling back to NoTestRun"
           sf project deploy start \
             --source-dir "${{ inputs.source_dir }}" \
-            --test-level NoTestRun \
+            --test-level RunLocalTests \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
       - name: Deploy with configured test level
@@ -136,13 +136,22 @@ jobs:
             --test-level "$SF_TESTLEVEL" \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
-      - name: Deploy without tests
-        if: ${{ env.SF_TESTLEVEL == '' }}
+      - name: Deploy without tests when NoTestRun is set
+        if: ${{ env.SF_TESTLEVEL == 'NoTestRun' }}
         run: |
-          echo "Deploying ${{ inputs.source_dir }} with default NoTestRun"
+          echo "Deploying ${{ inputs.source_dir }} with NoTestRun"
           sf project deploy start \
             --source-dir "${{ inputs.source_dir }}" \
             --test-level NoTestRun \
+            --target-org "${{ inputs.sf_target_org }}" \
+            --ignore-conflicts
+      - name: Deploy with all test when NoTestRun is not set
+        if: ${{ env.SF_TESTLEVEL == '' }}
+        run: |
+          echo "Deploying ${{ inputs.source_dir }} with RunLocalTests"
+          sf project deploy start \
+            --source-dir "${{ inputs.source_dir }}" \
+            --test-level RunLocalTests \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
 
