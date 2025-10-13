@@ -67,12 +67,6 @@ jobs:
     environment: ${{ inputs.environment_name }}
     runs-on: ubuntu-latest
     container: salesforce/cli:latest-slim
-    env:
-      SF_LOGIN_URL: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
-      SF_USERNAME: ${{ inputs.sf_username || vars.SF_USERNAME }}
-      SF_CLIENT_ID: ${{ inputs.sf_client_id || secrets.SF_CLIENT_ID }}
-      JWT_KEY_B64: ${{ inputs.jwt_key_b64 || secrets.JWT_KEY_B64 || secrets.SF_CLIENT_KEY }}
-      SF_TESTLEVEL: ${{ inputs.sf_testlevel || vars.SF_TESTLEVEL || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
@@ -81,17 +75,18 @@ jobs:
       - name: Authenticate
         run: |
           echo "Authenticating to Salesforce org..."
-          echo $JWT_KEY_B64 | base64 -d > jwt-key.key
+          JWT_KEY_B64="${{ inputs.jwt_key_b64 || secrets.JWT_KEY_B64 || secrets.SF_CLIENT_KEY }}"
+          printf '%s' "$JWT_KEY_B64" | base64 -d > jwt-key.key
           sf org login jwt \
-            --instance-url "$SF_LOGIN_URL" \
-            --username "$SF_USERNAME" \
-            --client-id "$SF_CLIENT_ID" \
+            --instance-url "${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}" \
+            --username "${{ inputs.sf_username || vars.SF_USERNAME }}" \
+            --client-id "${{ inputs.sf_client_id || secrets.SF_CLIENT_ID }}" \
             --jwt-key-file jwt-key.key \
             --alias ${{ inputs.sf_target_org }}
           rm jwt-key.key
       - name: Get Test Classes from Test Suite
         id: get_tests
-        if: ${{ env.SF_TESTLEVEL == 'RunSpecifiedTests' }}
+        if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunSpecifiedTests' }}
         run: |
           echo "Retrieving test classes from sf_scripts test suite..."
           echo "test_classes=" >> "$GITHUB_OUTPUT"
@@ -108,7 +103,7 @@ jobs:
             echo "No test classes found in sf_scripts test suite"
           fi
       - name: Deploy with specified tests
-        if: ${{ env.SF_TESTLEVEL == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes != '' }}
+        if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes != '' }}
         run: |
           echo "Deploying ${{ inputs.source_dir }} with RunSpecifiedTests"
           echo "Running tests: ${{ steps.get_tests.outputs.test_classes }}"
@@ -119,7 +114,7 @@ jobs:
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
       - name: Deploy with RunLocalTests (fallback)
-        if: ${{ env.SF_TESTLEVEL == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes == '' }}
+        if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes == '' }}
         run: |
           echo "No test classes found in sf_scripts test suite, falling back to RunLocalTests"
           sf project deploy start \
@@ -128,7 +123,7 @@ jobs:
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
       - name: Deploy without tests when NoTestRun is set
-        if: ${{ env.SF_TESTLEVEL == 'NoTestRun' }}
+        if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'NoTestRun' }}
         run: |
           echo "Deploying ${{ inputs.source_dir }} with NoTestRun"
           sf project deploy start \
@@ -137,7 +132,7 @@ jobs:
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
       - name: Deploy with all test when NoTestRun is not set
-        if: ${{ env.SF_TESTLEVEL == '' || env.SF_TESTLEVEL == 'RunLocalTests' }}
+        if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == '' || (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunLocalTests' }}
         run: |
           echo "Deploying ${{ inputs.source_dir }} with RunLocalTests"
           sf project deploy start \
