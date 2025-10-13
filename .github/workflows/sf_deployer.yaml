@@ -118,7 +118,7 @@ jobs:
             --tests "${{ steps.get_tests.outputs.test_classes }}" \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
-      - name: Deploy without tests (fallback)
+      - name: Deploy with RunLocalTests (fallback)
         if: ${{ env.SF_TESTLEVEL == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes == '' }}
         run: |
           echo "No test classes found in sf_scripts test suite, falling back to RunLocalTests"
@@ -137,7 +137,7 @@ jobs:
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
       - name: Deploy with all test when NoTestRun is not set
-        if: ${{ env.SF_TESTLEVEL == '' }}
+        if: ${{ env.SF_TESTLEVEL == '' || env.SF_TESTLEVEL == 'RunLocalTests' }}
         run: |
           echo "Deploying ${{ inputs.source_dir }} with RunLocalTests"
           sf project deploy start \
