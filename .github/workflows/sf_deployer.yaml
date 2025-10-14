@@ -115,7 +115,6 @@ jobs:
           sf project deploy start \
             --source-dir "${{ inputs.source_dir }}" \
             --test-level RunSpecifiedTests \
-          # --tests "${{ steps.get_tests.outputs.test_classes }}" \
             --tests "TestDataCommunicationSettingsCommandTest,TestDataRelatedWoliTemplatesCommandTest" \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
