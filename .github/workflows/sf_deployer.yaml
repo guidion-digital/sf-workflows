@@ -118,7 +118,6 @@ jobs:
             --tests ${{ steps.get_tests.outputs.test_classes }} \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
-            --verbose
       - name: Deploy with RunLocalTests (fallback)
         if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes == '' }}
         run: |
