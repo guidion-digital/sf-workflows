@@ -80,7 +80,7 @@ jobs:
           sf org login jwt \
             --instance-url "${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}" \
             --username "${{ inputs.sf_username || vars.SF_USERNAME }}" \
-            --client-id "${{ inputs.sf_client_id || secrets.SF_CLIENT_ID }}" \
+            --client-id "${{ inputs.sf_client_id || vars.SF_CLIENT_ID || secrets.SF_CLIENT_ID }}" \
             --jwt-key-file jwt-key.key \
             --alias ${{ inputs.sf_target_org }}
           rm jwt-key.key
