@@ -99,7 +99,7 @@ jobs:
             --query "SELECT Id, ApexClass.Name FROM TestSuiteMembership where ApexTestSuite.TestSuiteName = '${{ inputs.test_dir || vars.TEST_DIR }}'" \
             --use-tooling-api \
             --target-org "${{ inputs.sf_target_org }}" \
-            --json | jq -r '.result.records[].ApexClass.Name' | tr '\n' ' ' | sed 's/ $//')
+            --json | jq -r '.result.records[].ApexClass.Name' | tr '\n' ', ' | sed 's/ $//')
 
           if [ -n "$TEST_CLASSES" ]; then
             echo "Found test classes: $TEST_CLASSES"
