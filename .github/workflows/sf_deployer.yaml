@@ -96,7 +96,7 @@ jobs:
           echo "Retrieving test classes from sf_scripts test suite..."
           echo "test_classes=" >> "$GITHUB_OUTPUT"
           TEST_CLASSES=$(sf data query \
-            --query "SELECT Id, ApexClass.Name FROM TestSuiteMembership where ApexTestSuite.TestSuiteName = '${{ inputs.test_dir }}'" \
+            --query "SELECT Id, ApexClass.Name FROM TestSuiteMembership where ApexTestSuite.TestSuiteName = '${{ inputs.test_dir || vars.TEST_DIR }}'" \
             --use-tooling-api \
             --target-org "${{ inputs.sf_target_org }}" \
             --json | jq -r '.result.records[].ApexClass.Name' | tr '\n' ' ' | sed 's/ $//')
