@@ -22,6 +22,11 @@ on:
         type: string
         required: false
         default: src
+      test_dir:
+        description: Directory containing the tests
+        type: string
+        required: false
+        default: sf_scripts
       sf_login_url:
         description: Salesforce login URL
         type: string
@@ -91,7 +96,7 @@ jobs:
           echo "Retrieving test classes from sf_scripts test suite..."
           echo "test_classes=" >> "$GITHUB_OUTPUT"
           TEST_CLASSES=$(sf data query \
-            --query "SELECT Id, ApexClass.Name FROM TestSuiteMembership where ApexTestSuite.TestSuiteName = 'sf_scripts'" \
+            --query "SELECT Id, ApexClass.Name FROM TestSuiteMembership where ApexTestSuite.TestSuiteName = '${{ inputs.test_dir }}'" \
             --use-tooling-api \
             --target-org "${{ inputs.sf_target_org }}" \
             --json | jq -r '.result.records[].ApexClass.Name' | tr '\n' ' ' | sed 's/ $//')
