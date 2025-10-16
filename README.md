@@ -14,7 +14,7 @@ consumer repository can trigger a deployment manually, pass a branch name, and
 fan out secrets from organization or environment storage.
 
 ```yaml
-# .github/workflows/deploy-sf-home.yaml in the consumer repository
+# .github/workflows/deploy_develop.yaml in the consumer repository
 
 
 name: Deploy sf-home to dev environment
@@ -57,7 +57,7 @@ jobs:
 - For example the following organization secret inputs are available for dev: `SF_CLIENT_KEY` and `SLACK_TOKEN`
 
   `SF_CLIENT_KEY_DEV`
-  
+
   `SLACK_TOKEN`
 
 ### Additional tips
