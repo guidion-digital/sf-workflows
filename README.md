@@ -45,12 +45,15 @@ jobs:
 - Most secrets and variables are defined on the Guidion Organization level
   they can be shared with the repository that need these values. 
   Ask Team Infra to add these secrets and variables to the repositories.
-- The following organization variables are available for dev: `SF_LOGIN_URL`, `SF_USERNAME`, and `SF_CLIENT_ID`
+
+- For example the following organization variables inputs are available for dev: `SF_LOGIN_URL`, `SF_USERNAME`, and `SF_CLIENT_ID`:
+
   `SF_LOGIN_URL_DEV`
   `SF_LOGIN_USERNAME_DEV`
   `SF_CLIENT_ID_DEV`
 
-- The following organization variables are available for dev: `SF_CLIENT_KEY` and `SLACK_TOKEN`
+- For example the following organization secret inputs are available for dev: `SF_CLIENT_KEY` and `SLACK_TOKEN`
+
   `SF_CLIENT_KEY_DEV`
   `SLACK_TOKEN`
 
