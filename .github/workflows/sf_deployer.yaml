@@ -111,10 +111,10 @@ jobs:
       - name: Deploy with specified tests
         if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes != '' }}
         run: |
-          echo "Deploying ${{ inputs.source_dir }} with RunSpecifiedTests"
+          echo "Deploying ${{ inputs.source_dir || vars.SOURCE_DIR }} with RunSpecifiedTests"
           echo "Running tests: ${{ steps.get_tests.outputs.test_classes }}"
           sf project deploy start \
-            --source-dir "${{ inputs.source_dir }}" \
+            --source-dir "${{ inputs.source_dir || vars.SOURCE_DIR }}" \
             --test-level RunSpecifiedTests \
             --tests ${{ steps.get_tests.outputs.test_classes }} \
             --target-org "${{ inputs.sf_target_org }}" \
@@ -124,25 +124,25 @@ jobs:
         run: |
           echo "No test classes found in sf_scripts test suite, falling back to RunLocalTests"
           sf project deploy start \
-            --source-dir "${{ inputs.source_dir }}" \
+            --source-dir "${{ inputs.source_dir || vars.SOURCE_DIR }}" \
             --test-level RunLocalTests \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
       - name: Deploy without tests when NoTestRun is set
         if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'NoTestRun' }}
         run: |
-          echo "Deploying ${{ inputs.source_dir }} with NoTestRun"
+          echo "Deploying ${{ inputs.source_dir || vars.SOURCE_DIR }} with NoTestRun"
           sf project deploy start \
-            --source-dir "${{ inputs.source_dir }}" \
+            --source-dir "${{ inputs.source_dir || vars.SOURCE_DIR }}" \
             --test-level NoTestRun \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
       - name: Deploy with all test when NoTestRun is not set
         if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == '' || (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunLocalTests' }}
         run: |
-          echo "Deploying ${{ inputs.source_dir }} with RunLocalTests"
+          echo "Deploying ${{ inputs.source_dir || vars.SOURCE_DIR }} with RunLocalTests"
           sf project deploy start \
-            --source-dir "${{ inputs.source_dir }}" \
+            --source-dir "${{ inputs.source_dir || vars.SOURCE_DIR }}" \
             --test-level RunLocalTests \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts
