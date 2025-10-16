@@ -11,7 +11,8 @@ on:
       environment_name:
         description: GH environment holding information needed to deploy
         type: string
-        required: true
+        required: false
+        default: ''
       branch:
         description: Banch to checkout
         type: string
