@@ -1,0 +1,138 @@
+name: PR Label Assignment
+
+on:
+  workflow_call:
+    inputs:
+      org:
+        required: true
+        type: string
+      teams:
+        required: true
+        type: string
+      required_branches:
+        required: true
+        type: string
+      label:
+        required: true
+        type: string
+      property_name:
+        required: true
+        type: string
+      expected_property_value:
+        required: true
+        type: string
+      pr_number:
+        required: true
+        type: number
+
+jobs:
+  validate-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Check conditions and add label
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ORG_TOKEN }}
+          script: |
+            // Get inputs from workflow_call
+            const org = '${{ inputs.org }}';
+            const teamsInput = '${{ inputs.teams }}';
+            const branchesInput = '${{ inputs.required_branches }}';
+            const label = '${{ inputs.label }}';
+            const property_name = '${{ inputs.property_name }}';
+            const expected_property_value = '${{ inputs.expected_property_value }}';
+            const prNumber = '${{ inputs.pr_number }}';
+
+            const teams = teamsInput.split(',').map(t => t.trim()).filter(Boolean);
+            const required_branches = branchesInput.split(',').map(b => b.trim()).filter(Boolean);
+
+            // Fetch PR by number
+            let pr;
+            try {
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: parseInt(prNumber, 10)
+              });
+              pr = data;
+            } catch (e) {
+              core.setFailed(`Failed to fetch PR #${prNumber}: ${e.message}`);
+              return;
+            }
+
+            const repo = context.repo;
+
+            // Check if PR targets required branch (cheapest check first)
+            if (!required_branches.includes(pr.base.ref)) {
+              core.info(`PR targets ${pr.base.ref}, not a required branch. Skipping label assignment.`);
+              return;
+            }
+
+            // Check repository custom property before team membership (cheaper API call)
+            let projectTeam = null;
+            try {
+              const { data: properties } = await github.request('GET /repos/{owner}/{repo}/properties/values', {
+                owner: repo.owner,
+                repo: repo.repo,
+              });
+              projectTeam = properties?.find(prop => prop.property_name === property_name)?.value;
+            } catch (e) {
+              core.error(`Failed to read repository custom properties: ${e.message}`);
+              return;
+            }
+            
+            if (!projectTeam || projectTeam.toLowerCase() !== expected_property_value.toLowerCase()) {
+              core.info(`Repository '${property_name}' property is '${projectTeam || "not set"}', expected '${expected_property_value}'. Skipping label assignment.`);
+              return;
+            }
+
+            // Check if PR author is a member of any team
+            let isTeamMember = false;
+            for (const team_slug of teams) {
+              try {
+                await github.rest.teams.getMembershipForUserInOrg({
+                  org,
+                  team_slug,
+                  username: pr.user.login,
+                });
+                isTeamMember = true;
+                break;
+              } catch (e) {
+                // 404 means user is not a member of this team
+                if (e.status !== 404) {
+                  throw e;
+                }
+              }
+            }
+
+            if (!isTeamMember) {
+              core.info(`User ${pr.user.login} is not a member of any team: ${teams.join(", ")}. Skipping label assignment.`);
+              return;
+            }
+
+            // Check if label already exists to avoid unnecessary API call
+            const existingLabels = pr.labels.map(l => l.name);
+            if (existingLabels.includes(label)) {
+              core.info(`Label '${label}' already exists on PR #${pr.number}.`);
+              return;
+            }
+
+            // Add label
+            try {
+              await github.rest.issues.addLabels({
+                owner: repo.owner,
+                repo: repo.repo,
+                issue_number: pr.number,
+                labels: [label],
+              });
+              core.info(`✓ Label '${label}' added to PR #${pr.number}`);
+            } catch (e) {
+              // Handle case where label might have been added between check and add
+              if (e.status === 422 && e.message?.includes('already')) {
+                core.info(`Label '${label}' was already added to PR #${pr.number}.`);
+              } else {
+                throw e;
+              }
+            }
