@@ -2,8 +2,8 @@ name: Deploy package to dev environment
 
 on:
     workflow_call:
-        secret:
-            inherit: true
+        secrets:
+            inherit
         
 jobs:
     deploy:
@@ -33,8 +33,8 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Notify devs
-                uses: guidion-digital/slack-notifications@v1
-                with:
-                slack_channel: ${{ vars.slack_channel }}
-                slack_token: ${{ secrets.SLACK_TOKEN }}
-                workflow_status: ${{ needs.deploy.result }}
+              uses: guidion-digital/slack-notifications@v1
+              with:
+                  slack_channel: ${{ vars.SLACK_CHANNEL }}
+                  slack_token: ${{ secrets.SLACK_TOKEN }}
+                  workflow_status: ${{ needs.deploy.result }}
