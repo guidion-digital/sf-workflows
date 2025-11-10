@@ -1,0 +1,19 @@
+name: PR Label Assignment
+
+on:
+    workflow_call:
+
+jobs:
+  label-assignment:
+    permissions:
+      issues: write
+    uses: guidion-digital/sf-workflows/.github/workflows/review_label_assignment.yaml@v0
+    with:
+      org: 'guidion-digital'
+      teams: 'tectonic,functional'
+      required_branches: 'dev,acc,staging,prod'
+      label: 'to-be-approved-tectonic'
+      property_name: 'project-team'
+      expected_property_value: 'tectonic'
+      pr_number: ${{ github.event.pull_request.number }}
+    secrets: inherit
