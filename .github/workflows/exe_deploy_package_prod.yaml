@@ -1,0 +1,38 @@
+name: Deploy package to prod environment
+
+on:
+    workflow_call:
+        
+jobs:
+    deploy:
+        permissions:
+            contents: write
+        uses: guidion-digital/sf-workflows/.github/workflows/deploy_package.yaml@v0
+        with:
+            environment_name: prod
+            SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS_PROD }}
+            SF_DEVHUB_SCRATCH_ALIAS: ${{ vars.SF_DEVHUB_SCRATCH_ALIAS_PROD }}
+            SF_DEVHUB_USERNAME: ${{ vars.SF_DEVHUB_USERNAME_PROD }}
+            SF_LOGIN_URL: ${{ vars.SF_LOGIN_URL_PROD }}
+            SF_TESTLEVEL: ${{ vars.SF_TESTLEVEL_PROD }}
+            SF_USERNAME: ${{ vars.SF_USERNAME_PROD }}
+            SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
+        secrets: 
+            SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID_PROD }}
+            SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_PROD }}
+            SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID_PROD }}
+            SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY_PROD }}
+            SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
+            NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+
+    notify:
+        needs: deploy
+        runs-on: ubuntu-latest
+        steps:
+            - name: Notify devs
+              uses: guidion-digital/slack-notifications@v1
+              with:
+                  slack_channel: ${{ vars.SLACK_CHANNEL }}
+                  slack_token: ${{ secrets.SLACK_TOKEN }}
+                  workflow_status: ${{ needs.deploy.result }}
