@@ -2,8 +2,6 @@ name: Deploy package to dev environment
 
 on:
     workflow_call:
-        secrets:
-            inherit
         
 jobs:
     deploy:
