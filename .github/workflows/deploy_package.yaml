@@ -49,7 +49,7 @@ on:
       SF_PASSWORD:
         required: true
       NPM_TOKEN:
-        required: false
+        required: true
 
 jobs:
   deploy:
