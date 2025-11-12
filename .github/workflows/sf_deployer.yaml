@@ -7,7 +7,7 @@ on:
         description: Channel to notifify about a deployment
         type: string
         required: false
-        default: ''
+        default: 'tectonic-code'
       environment_name:
         description: GH environment holding information needed to deploy
         type: string

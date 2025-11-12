@@ -36,7 +36,7 @@ on:
         description: Channel to notifify about a deployment 
         type: string
         required: false
-        default: "team-tectonic"
+        default: "tectonic-code"
     secrets:
       SF_CLIENT_ID:
         required: false
@@ -96,3 +96,14 @@ jobs:
       - name: Deploy package
         timeout-minutes: 180
         run: npx semantic-release -e @gdn/semantic-release-sfdx-config
+
+  notify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+        - name: Notify devs
+          uses: guidion-digital/slack-notifications@v1
+          with:
+              slack_channel: ${{ vars.SLACK_CHANNEL }}
+              slack_token: ${{ secrets.SLACK_TOKEN }}
+              workflow_status: ${{ needs.deploy.result }}
