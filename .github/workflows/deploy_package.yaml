@@ -101,9 +101,9 @@ jobs:
     needs: deploy
     runs-on: ubuntu-latest
     steps:
-        - name: Notify devs
-          uses: guidion-digital/slack-notifications@v1
-          with:
-              slack_channel: ${{ vars.SLACK_CHANNEL }}
-              slack_token: ${{ secrets.SLACK_TOKEN }}
-              workflow_status: ${{ needs.deploy.result }}
+      - name: Notify devs
+        uses: guidion-digital/slack-notifications@v1
+        with:
+          slack_channel: ${{ inputs.SLACK_CHANNEL }}
+          slack_token: ${{ secrets.SLACK_TOKEN }}
+          workflow_status: ${{ needs.deploy.result }}
