@@ -50,6 +50,8 @@ on:
         required: true
       NPM_TOKEN:
         required: true
+      SLACK_TOKEN:
+        required: false
 
 jobs:
   deploy:
