@@ -24,15 +24,3 @@ jobs:
             SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY_DEV }}
             SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
             NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-
-    notify:
-        needs: deploy
-        runs-on: ubuntu-latest
-        steps:
-            - name: Notify devs
-              uses: guidion-digital/slack-notifications@v1
-              with:
-                  slack_channel: ${{ vars.SLACK_CHANNEL }}
-                  slack_token: ${{ secrets.SLACK_TOKEN }}
-                  workflow_status: ${{ needs.deploy.result }}
