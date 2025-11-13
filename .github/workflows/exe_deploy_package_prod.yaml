@@ -2,7 +2,7 @@ name: Deploy package to prod environment
 
 on:
     workflow_call:
-        
+
 jobs:
     deploy:
         permissions:
@@ -17,7 +17,7 @@ jobs:
             SF_TESTLEVEL: ${{ vars.SF_TESTLEVEL_PROD }}
             SF_USERNAME: ${{ vars.SF_USERNAME_PROD }}
             SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
-        secrets: 
+        secrets:
             SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID_PROD }}
             SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_PROD }}
             SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID_PROD }}
