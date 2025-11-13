@@ -5,7 +5,7 @@ on:
 
 jobs:
   deploy:
-    uses: guidion-digital/sf-workflows/.github/workflows/sf_deployer.yaml@v0
+    uses: guidion-digital/sf-workflows/.github/workflows/sf_deployer.yaml@v1
     with:
       environment_name: dev
       SF_LOGIN_URL: ${{ vars.SF_LOGIN_URL_DEV }}
