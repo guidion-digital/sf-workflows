@@ -1,0 +1,55 @@
+name: Deploy to acc environment
+
+on:
+    workflow_call:
+
+jobs:
+  deploy:
+    uses: guidion-digital/sf-workflows/.github/workflows/sf_deployer.yaml@v0
+    with:
+      environment_name: prod
+      SF_LOGIN_URL: ${{ vars.SF_LOGIN_URL_PROD }}
+      SF_USERNAME: ${{ vars.SF_USERNAME_PROD }}
+      SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID_PROD }}
+      SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
+    secrets:
+      SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_PROD }}
+      SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+
+  flush-cache:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name }}
+    needs: deploy
+    if: success()
+    steps:
+    - name: Flush Home App cache
+      run: |
+        echo "Flushing cache for Home App..."
+        RESPONSE=$(curl -s -w "%{http_code}" -o response.json \
+            -X POST https://homeapp.guidion.io/api/v1/cache-flush \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: ${{ secrets.CACHE_FLUSH_API_KEY }}" \
+            -d '{
+                "userId": "${{ vars.USER_ID_FOR_CACHE_FLUSH }}"
+            }')
+
+        echo "API responded with status code: $RESPONSE"
+        echo "Response body:"
+        cat response.json
+
+        if [ "$RESPONSE" -ne 200 ]; then
+            echo " Cache flush failed."
+            curl -H "Content-type: application/json" \
+                --data '{"channel":"${{ vars.SLACK_CHANNEL }}","blocks":[{
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "The Home App cache flush API call failed in Prod. Please check the logs for details."}
+                    }]
+                }' \
+                -H "Authorization: Bearer ${{ secrets.slack_token }}" \
+                -X POST https://slack.com/api/chat.postMessage
+            exit 1
+        else
+            echo " Cache flush succeeded."
+        fi

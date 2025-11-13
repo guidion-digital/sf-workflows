@@ -1,0 +1,17 @@
+name: Deploy to dev environment
+
+on:
+    workflow_call:
+
+jobs:
+  deploy:
+    uses: guidion-digital/sf-workflows/.github/workflows/sf_deployer.yaml@v0
+    with:
+      environment_name: dev
+      SF_LOGIN_URL: ${{ vars.SF_LOGIN_URL_DEV }}
+      SF_USERNAME: ${{ vars.SF_USERNAME_DEV }}
+      SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID_DEV }}
+      SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
+    secrets: 
+      SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_DEV }}
+      SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
