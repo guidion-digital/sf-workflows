@@ -7,7 +7,7 @@ on:
         description: Channel to notifify about a deployment
         type: string
         required: false
-        default: ''
+        default: 'tectonic-code'
       environment_name:
         description: GH environment holding information needed to deploy
         type: string
@@ -153,6 +153,6 @@ jobs:
       - name: Notify devs
         uses: guidion-digital/slack-notifications@v1
         with:
-          slack_channel: ${{ inputs.slack_channel || vars.slack_channel || '' }}
+          slack_channel: ${{ inputs.slack_channel }}
           slack_token: ${{ secrets.SLACK_TOKEN }}
           workflow_status: ${{ needs.deploy.result }}
