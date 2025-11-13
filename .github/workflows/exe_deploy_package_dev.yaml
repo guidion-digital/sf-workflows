@@ -16,7 +16,6 @@ jobs:
       SF_LOGIN_URL: ${{ vars.SF_LOGIN_URL_DEV }}
       SF_TESTLEVEL: ${{ vars.SF_TESTLEVEL_DEV }}
       SF_USERNAME: ${{ vars.SF_USERNAME_DEV }}
-      SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
     secrets:
       SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID_DEV }}
       SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_DEV }}
