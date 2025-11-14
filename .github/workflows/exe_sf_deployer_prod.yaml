@@ -11,7 +11,6 @@ jobs:
             SF_LOGIN_URL: ${{ vars.SF_LOGIN_URL_PROD }}
             SF_USERNAME: ${{ vars.SF_USERNAME_PROD }}
             SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID_PROD }}
-            SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
         secrets:
             SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_PROD }}
             SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
