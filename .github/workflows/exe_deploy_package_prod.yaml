@@ -21,6 +21,5 @@ jobs:
             SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_PROD }}
             SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID_PROD }}
             SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY_PROD }}
-            SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
             NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
             SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}

@@ -46,8 +46,6 @@ on:
         required: false
       SF_DEVHUB_CLIENT_KEY:
         required: false
-      SF_PASSWORD:
-        required: true
       NPM_TOKEN:
         required: true
       SLACK_TOKEN:
@@ -70,7 +68,6 @@ jobs:
       SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY }}
       SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
       SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY }}
-      SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - name: Checkout
