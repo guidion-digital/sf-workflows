@@ -46,6 +46,8 @@ on:
         required: false
       NPM_TOKEN:
         required: false
+      SLACK_TOKEN:
+        required: false
 
 jobs:
   deploy:
