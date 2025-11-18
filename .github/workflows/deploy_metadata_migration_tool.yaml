@@ -44,9 +44,9 @@ on:
         required: false
       SF_DEVHUB_CLIENT_KEY:
         required: false
-      SF_PASSWORD:
-        required: true
       NPM_TOKEN:
+        required: false
+      SLACK_TOKEN:
         required: false
 
 jobs:
@@ -61,7 +61,6 @@ jobs:
       SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY || '' }}
       SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID || '' }}
       SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY || '' }}
-      SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
       SF_DEVHUB_ALIAS: ${{ inputs.SF_DEVHUB_ALIAS || '' }}
       SF_DEVHUB_SCRATCH_ALIAS: ${{ inputs.SF_DEVHUB_SCRATCH_ALIAS || '' }}
       SF_DEVHUB_USERNAME: ${{ inputs.SF_DEVHUB_USERNAME || '' }}
