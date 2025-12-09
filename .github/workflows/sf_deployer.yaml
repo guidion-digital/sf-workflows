@@ -117,7 +117,8 @@ jobs:
             --test-level RunSpecifiedTests \
             --tests ${{ steps.get_tests.outputs.test_classes }} \
             --target-org "${{ inputs.sf_target_org }}" \
-            --ignore-conflicts
+            --ignore-conflicts \
+            --wait 180
       - name: Deploy with RunLocalTests (fallback)
         if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes == '' }}
         run: |
@@ -126,7 +127,8 @@ jobs:
             --source-dir "${{ inputs.source_dir }}" \
             --test-level RunLocalTests \
             --target-org "${{ inputs.sf_target_org }}" \
-            --ignore-conflicts
+            --ignore-conflicts \
+            --wait 180
       - name: Deploy without tests when NoTestRun is set
         if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'NoTestRun' }}
         run: |
@@ -135,7 +137,8 @@ jobs:
             --source-dir "${{ inputs.source_dir }}" \
             --test-level NoTestRun \
             --target-org "${{ inputs.sf_target_org }}" \
-            --ignore-conflicts
+            --ignore-conflicts \
+            --wait 180
       - name: Deploy with all test when NoTestRun is not set
         if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == '' || (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunLocalTests' }}
         run: |
@@ -144,7 +147,8 @@ jobs:
             --source-dir "${{ inputs.source_dir }}" \
             --test-level RunLocalTests \
             --target-org "${{ inputs.sf_target_org }}" \
-            --ignore-conflicts
+            --ignore-conflicts \
+            --wait 180
 
   notify:
     needs: deploy
