@@ -8,6 +8,7 @@ jobs:
         uses: guidion-digital/sf-workflows/.github/workflows/sf_deployer.yaml@v1
         with:
             environment_name: prod
+            source_dir: force-app
             SF_LOGIN_URL: ${{ vars.SF_LOGIN_URL_PROD }}
             SF_USERNAME: ${{ vars.SF_USERNAME_PROD }}
             SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID_PROD }}
