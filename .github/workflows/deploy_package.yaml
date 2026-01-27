@@ -51,6 +51,11 @@ on:
       SLACK_TOKEN:
         required: false
 
+permissions:
+    contents: write
+    actions: write
+    attestations: write
+
 jobs:
   deploy:
     environment: ${{ inputs.environment_name }}
@@ -95,6 +100,13 @@ jobs:
       - name: Deploy package
         timeout-minutes: 180
         run: npx semantic-release -e @gdn/semantic-release-sfdx-config
+      - name: Upload Apex test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apex-test-results
+          path: tests
+          if-no-files-found: ignore
 
   notify:
     needs: deploy
