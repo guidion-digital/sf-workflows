@@ -53,8 +53,6 @@ on:
 
 permissions:
     contents: write
-    actions: write
-    attestations: write
 
 jobs:
   deploy:
