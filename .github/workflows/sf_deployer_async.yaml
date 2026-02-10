@@ -197,7 +197,7 @@ jobs:
           BRANCH="${{ inputs.branch }}"
           ACTOR="${{ github.actor }}"
           COMMIT_SHA="${{ github.sha }}"
-          SHORT_SHA="${COMMIT_SHA:0:7}"
+          SHORT_SHA=$(printf '%.7s' "$COMMIT_SHA")
           SLACK_CHANNEL="${{ inputs.slack_channel }}"
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
