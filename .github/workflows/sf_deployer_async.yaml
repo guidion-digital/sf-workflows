@@ -1,0 +1,186 @@
+name: "[ASYNC TEST] Deploy sf-home to the <inputs.environment_name> environment"
+
+# This is a TEST version of sf_deployer.yaml that uses async deployments.
+# Use this to test the async deployment + poller workflow before switching.
+# Once tested, this will replace sf_deployer.yaml
+
+on:
+  workflow_call:
+    inputs:
+      slack_channel:
+        description: Channel to notifify about a deployment
+        type: string
+        required: false
+        default: 'tectonic-code'
+      environment_name:
+        description: GH environment holding information needed to deploy
+        type: string
+        required: true
+      branch:
+        description: Banch to checkout
+        type: string
+        required: false
+        default: ${{ github.ref_name }}
+      source_dir:
+        description: Directory containing the source code to deploy
+        type: string
+        required: false
+        default: src
+      test_dir:
+        description: Directory containing the tests
+        type: string
+        required: false
+        default: sf_scripts
+      sf_login_url:
+        description: Salesforce login URL
+        type: string
+        required: false
+      sf_username:
+        description: Salesforce username
+        type: string
+        required: false
+      sf_client_id:
+        description: Salesforce consumer key
+        type: string
+        required: false
+      jwt_key_b64:
+        description: Salesforce JWT key
+        type: string
+        required: false
+      sf_testlevel:
+        description: Salesforce test level
+        type: string
+        required: false
+      sf_target_org:
+        description: Salesforce target org (used for the alias)
+        type: string
+        required: false
+        default: default
+    secrets:
+      # These are needed when using organization secrets to further define which secret to passthrough, ie: SF_CLIENT_KEY_DEV
+      SF_CLIENT_ID:
+        description: Salesforce consumer key
+        required: false
+      SF_CLIENT_KEY:
+        description: Salesforce consumer key
+        required: false
+      JWT_KEY_B64:
+        description: Salesforce JWT key (base64 encoded)
+        required: false
+      SLACK_TOKEN:
+        description: Slack token
+        required: false
+
+jobs:
+  deploy:
+    environment: ${{ inputs.environment_name }}
+    runs-on: ubuntu-latest
+    container: salesforce/cli:latest-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ inputs.branch }}
+      - name: Authenticate
+        run: |
+          echo "Authenticating to Salesforce org..."
+          JWT_KEY_B64="${{ inputs.jwt_key_b64 || secrets.JWT_KEY_B64 || secrets.SF_CLIENT_KEY }}"
+          printf '%s' "$JWT_KEY_B64" | base64 -d > jwt-key.key
+          sf org login jwt \
+            --instance-url "${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}" \
+            --username "${{ inputs.sf_username || vars.SF_USERNAME }}" \
+            --client-id "${{ inputs.sf_client_id || vars.SF_CLIENT_ID || secrets.SF_CLIENT_ID }}" \
+            --jwt-key-file jwt-key.key \
+            --alias ${{ inputs.sf_target_org }}
+          rm jwt-key.key
+      - name: Get Test Classes from Test Suite
+        id: get_tests
+        if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunSpecifiedTests' }}
+        run: |
+          echo "Retrieving test classes from sf_scripts test suite..."
+          echo "test_classes=" >> "$GITHUB_OUTPUT"
+          TEST_CLASSES=$(sf data query \
+            --query "SELECT Id, ApexClass.Name FROM TestSuiteMembership where ApexTestSuite.TestSuiteName = '${{ inputs.test_dir || vars.TEST_DIR }}'" \
+            --use-tooling-api \
+            --target-org "${{ inputs.sf_target_org }}" \
+            --json | jq -r '.result.records[].ApexClass.Name' | tr '\n' ' ' | sed 's/ $//')
+
+          if [ -n "$TEST_CLASSES" ]; then
+            echo "Found test classes: $TEST_CLASSES"
+            echo "test_classes=$TEST_CLASSES" >> "$GITHUB_OUTPUT"
+          else
+            echo "No test classes found in sf_scripts test suite"
+          fi
+      - name: Deploy (async)
+        id: deploy
+        run: |
+          # Determine test level
+          CONFIGURED_TEST_LEVEL="${{ inputs.sf_testlevel || vars.SF_TESTLEVEL }}"
+          TEST_CLASSES="${{ steps.get_tests.outputs.test_classes }}"
+          
+          # Build deploy command arguments
+          if [[ "$CONFIGURED_TEST_LEVEL" == "RunSpecifiedTests" && -n "$TEST_CLASSES" ]]; then
+            TEST_LEVEL="RunSpecifiedTests"
+            EXTRA_ARGS="--tests $TEST_CLASSES"
+            echo "Deploying ${{ inputs.source_dir }} with RunSpecifiedTests"
+            echo "Running tests: $TEST_CLASSES"
+          elif [[ "$CONFIGURED_TEST_LEVEL" == "NoTestRun" ]]; then
+            TEST_LEVEL="NoTestRun"
+            EXTRA_ARGS=""
+            echo "Deploying ${{ inputs.source_dir }} with NoTestRun"
+          else
+            # Default to RunLocalTests (also fallback when RunSpecifiedTests but no test classes found)
+            TEST_LEVEL="RunLocalTests"
+            EXTRA_ARGS=""
+            if [[ "$CONFIGURED_TEST_LEVEL" == "RunSpecifiedTests" ]]; then
+              echo "No test classes found in test suite, falling back to RunLocalTests"
+            else
+              echo "Deploying ${{ inputs.source_dir }} with RunLocalTests"
+            fi
+          fi
+          
+          # Run async deployment
+          DEPLOY_OUTPUT=$(sf project deploy start \
+            --source-dir "${{ inputs.source_dir }}" \
+            --test-level "$TEST_LEVEL" \
+            $EXTRA_ARGS \
+            --target-org "${{ inputs.sf_target_org }}" \
+            --ignore-conflicts \
+            --async \
+            --json)
+          
+          # Extract Job ID
+          JOB_ID=$(echo "$DEPLOY_OUTPUT" | jq -r '.result.id')
+          echo "Deployment started with Job ID: $JOB_ID"
+          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
+          
+          # Write deployment info for the poller workflow
+          cat > deployment-info.json << EOF
+          {
+            "job_id": "$JOB_ID",
+            "environment": "${{ inputs.environment_name }}",
+            "target_org": "${{ inputs.sf_target_org }}",
+            "test_level": "$TEST_LEVEL",
+            "source_dir": "${{ inputs.source_dir }}",
+            "commit_sha": "${{ github.sha }}",
+            "branch": "${{ inputs.branch }}",
+            "actor": "${{ github.actor }}",
+            "slack_channel": "${{ inputs.slack_channel }}",
+            "github_run_id": "${{ github.run_id }}",
+            "github_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          
+          echo "Deployment info saved to deployment-info.json"
+          cat deployment-info.json
+
+      - name: Upload deployment info artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pending-deployment-${{ github.run_id }}
+          path: deployment-info.json
+          retention-days: 7
+
+  # NOTE: No notify job here - the deployment_poller.yaml handles notifications
+  # after the async deployment completes

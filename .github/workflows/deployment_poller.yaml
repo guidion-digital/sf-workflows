@@ -1,0 +1,326 @@
+name: Poll Salesforce Deployment Status
+
+on:
+  # Scheduled polling - uncomment when ready for production
+  # schedule:
+  #   # Run every 10 minutes
+  #   - cron: '*/10 * * * *'
+  
+  # Manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  poll-deployments:
+    runs-on: ubuntu-latest
+    # Note: Not using salesforce/cli container because we need gh CLI and unzip
+    steps:
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: Find pending deployment artifacts
+        id: find_artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Searching for pending deployment artifacts..."
+          
+          # List all artifacts matching our naming pattern (fetch up to 100)
+          ARTIFACTS=$(gh api repos/${{ github.repository }}/actions/artifacts?per_page=100 \
+            --jq '.artifacts[] | select(.name | startswith("pending-deployment-")) | {id: .id, name: .name, run_id: (.name | split("-") | .[-1])}')
+          
+          if [ -z "$ARTIFACTS" ]; then
+            echo "No pending deployments found."
+            echo "has_pending=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Found pending deployments:"
+            echo "$ARTIFACTS" | jq -s '.'
+            echo "$ARTIFACTS" | jq -s '.' > artifacts.json
+            echo "has_pending=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Process pending deployments
+        if: steps.find_artifacts.outputs.has_pending == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          # SF credentials for each environment
+          SF_LOGIN_URL_DEV: ${{ vars.SF_LOGIN_URL_DEV }}
+          SF_USERNAME_DEV: ${{ vars.SF_USERNAME_DEV }}
+          SF_CLIENT_ID_DEV: ${{ vars.SF_CLIENT_ID_DEV }}
+          SF_CLIENT_KEY_DEV: ${{ secrets.SF_CLIENT_KEY_DEV }}
+          SF_LOGIN_URL_ACC: ${{ vars.SF_LOGIN_URL_ACC }}
+          SF_USERNAME_ACC: ${{ vars.SF_USERNAME_ACC }}
+          SF_CLIENT_ID_ACC: ${{ vars.SF_CLIENT_ID_ACC }}
+          SF_CLIENT_KEY_ACC: ${{ secrets.SF_CLIENT_KEY_ACC }}
+          SF_LOGIN_URL_PROD: ${{ vars.SF_LOGIN_URL_PROD }}
+          SF_USERNAME_PROD: ${{ vars.SF_USERNAME_PROD }}
+          SF_CLIENT_ID_PROD: ${{ vars.SF_CLIENT_ID_PROD }}
+          SF_CLIENT_KEY_PROD: ${{ secrets.SF_CLIENT_KEY_PROD }}
+          # Cache flush
+          CACHE_FLUSH_API_KEY: ${{ secrets.CACHE_FLUSH_API_KEY }}
+          USER_ID_FOR_CACHE_FLUSH: ${{ vars.USER_ID_FOR_CACHE_FLUSH }}
+        run: |
+          # Process each artifact (using while read to handle JSON safely)
+          cat artifacts.json | jq -c '.[]' | while read -r ARTIFACT_ROW; do
+            ARTIFACT_ID=$(echo "$ARTIFACT_ROW" | jq -r '.id')
+            ARTIFACT_NAME=$(echo "$ARTIFACT_ROW" | jq -r '.name')
+            
+            echo "=========================================="
+            echo "Processing artifact: $ARTIFACT_NAME (ID: $ARTIFACT_ID)"
+            echo "=========================================="
+            
+            # Download the artifact
+            mkdir -p artifact_temp
+            gh api repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip > artifact.zip
+            unzip -o artifact.zip -d artifact_temp
+            
+            # Read deployment info
+            DEPLOYMENT_INFO=$(cat artifact_temp/deployment-info.json)
+            echo "Deployment info:"
+            echo "$DEPLOYMENT_INFO" | jq '.'
+            
+            JOB_ID=$(echo "$DEPLOYMENT_INFO" | jq -r '.job_id')
+            ENVIRONMENT=$(echo "$DEPLOYMENT_INFO" | jq -r '.environment')
+            TARGET_ORG=$(echo "$DEPLOYMENT_INFO" | jq -r '.target_org')
+            SLACK_CHANNEL=$(echo "$DEPLOYMENT_INFO" | jq -r '.slack_channel')
+            COMMIT_SHA=$(echo "$DEPLOYMENT_INFO" | jq -r '.commit_sha')
+            BRANCH=$(echo "$DEPLOYMENT_INFO" | jq -r '.branch')
+            ACTOR=$(echo "$DEPLOYMENT_INFO" | jq -r '.actor')
+            GITHUB_RUN_URL=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_run_url')
+            GITHUB_RUN_ID=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_run_id')
+            STARTED_AT=$(echo "$DEPLOYMENT_INFO" | jq -r '.started_at')
+            
+            # Build commit URL for linking
+            COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/$COMMIT_SHA"
+            
+            # Check if deployment is stale (older than 6 hours)
+            STARTED_EPOCH=$(date -d "$STARTED_AT" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$STARTED_AT" +%s 2>/dev/null || echo "0")
+            NOW_EPOCH=$(date +%s)
+            AGE_HOURS=$(( (NOW_EPOCH - STARTED_EPOCH) / 3600 ))
+            
+            if [ "$AGE_HOURS" -gt 6 ]; then
+              echo "WARNING: Deployment is $AGE_HOURS hours old. Marking as stale."
+              
+              # Send stale deployment notification
+              curl -s -X POST https://slack.com/api/chat.postMessage \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $SLACK_TOKEN" \
+                -d "{
+                  \"channel\": \"$SLACK_CHANNEL\",
+                  \"text\": \"Stale deployment detected in $ENVIRONMENT\",
+                  \"blocks\": [
+                    {
+                      \"type\": \"section\",
+                      \"text\": {
+                        \"type\": \"mrkdwn\",
+                        \"text\": \"⚠️ *Stale Deployment Detected*\n\nA deployment to *$ENVIRONMENT* started $AGE_HOURS hours ago and never completed.\nJob ID: \`$JOB_ID\`\n\nThis artifact will be removed. Please check Salesforce Deployment Status or re-run the workflow if needed.\"
+                      }
+                    },
+                    {
+                      \"type\": \"actions\",
+                      \"elements\": [
+                        {
+                          \"type\": \"button\",
+                          \"text\": {\"type\": \"plain_text\", \"text\": \"📋 View Workflow\"},
+                          \"url\": \"$GITHUB_RUN_URL\"
+                        }
+                      ]
+                    }
+                  ]
+                }"
+              
+              # Delete the stale artifact
+              gh api --method DELETE repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID || echo "Failed to delete artifact"
+              rm -rf artifact_temp artifact.zip
+              continue
+            fi
+            
+            # Get environment-specific credentials
+            ENV_UPPER=$(echo "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')
+            SF_LOGIN_URL_VAR="SF_LOGIN_URL_${ENV_UPPER}"
+            SF_USERNAME_VAR="SF_USERNAME_${ENV_UPPER}"
+            SF_CLIENT_ID_VAR="SF_CLIENT_ID_${ENV_UPPER}"
+            SF_CLIENT_KEY_VAR="SF_CLIENT_KEY_${ENV_UPPER}"
+            
+            SF_LOGIN_URL="${!SF_LOGIN_URL_VAR}"
+            SF_USERNAME="${!SF_USERNAME_VAR}"
+            SF_CLIENT_ID="${!SF_CLIENT_ID_VAR}"
+            SF_CLIENT_KEY="${!SF_CLIENT_KEY_VAR}"
+            
+            if [ -z "$SF_LOGIN_URL" ] || [ -z "$SF_USERNAME" ] || [ -z "$SF_CLIENT_ID" ] || [ -z "$SF_CLIENT_KEY" ]; then
+              echo "ERROR: Missing SF credentials for environment: $ENVIRONMENT"
+              continue
+            fi
+            
+            # Authenticate to Salesforce
+            echo "Authenticating to Salesforce ($ENVIRONMENT)..."
+            printf '%s' "$SF_CLIENT_KEY" | base64 -d > jwt-key.key
+            if ! sf org login jwt \
+              --instance-url "$SF_LOGIN_URL" \
+              --username "$SF_USERNAME" \
+              --client-id "$SF_CLIENT_ID" \
+              --jwt-key-file jwt-key.key \
+              --alias "$TARGET_ORG"; then
+              echo "ERROR: Failed to authenticate to Salesforce for environment: $ENVIRONMENT"
+              rm -f jwt-key.key
+              rm -rf artifact_temp artifact.zip
+              continue
+            fi
+            rm jwt-key.key
+            
+            # Check deployment status
+            echo "Checking deployment status for Job ID: $JOB_ID"
+            DEPLOY_STATUS=$(sf project deploy report --job-id "$JOB_ID" --target-org "$TARGET_ORG" --json 2>&1) || true
+            
+            STATUS=$(echo "$DEPLOY_STATUS" | jq -r '.result.status // .status // "Unknown"')
+            echo "Deployment status: $STATUS"
+            
+            # Handle completed deployments
+            if [[ "$STATUS" == "Succeeded" ]]; then
+              echo "Deployment SUCCEEDED!"
+              
+              # Send Slack notification with rich formatting
+              curl -s -X POST https://slack.com/api/chat.postMessage \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $SLACK_TOKEN" \
+                -d "{
+                  \"channel\": \"$SLACK_CHANNEL\",
+                  \"text\": \"Salesforce deployment succeeded in $ENVIRONMENT\",
+                  \"blocks\": [
+                    {
+                      \"type\": \"section\",
+                      \"text\": {
+                        \"type\": \"mrkdwn\",
+                        \"text\": \"✅ *Salesforce Deployment Succeeded*\"
+                      }
+                    },
+                    {
+                      \"type\": \"section\",
+                      \"fields\": [
+                        {\"type\": \"mrkdwn\", \"text\": \"*Environment:*\n$ENVIRONMENT\"},
+                        {\"type\": \"mrkdwn\", \"text\": \"*Branch:*\n$BRANCH\"},
+                        {\"type\": \"mrkdwn\", \"text\": \"*Commit:*\n<$COMMIT_URL|\`${COMMIT_SHA:0:7}\`>\"},
+                        {\"type\": \"mrkdwn\", \"text\": \"*Deployed by:*\n$ACTOR\"},
+                        {\"type\": \"mrkdwn\", \"text\": \"*Job ID:*\n\`$JOB_ID\`\"}
+                      ]
+                    },
+                    {
+                      \"type\": \"actions\",
+                      \"elements\": [
+                        {
+                          \"type\": \"button\",
+                          \"text\": {\"type\": \"plain_text\", \"text\": \"📋 View Workflow\"},
+                          \"url\": \"$GITHUB_RUN_URL\"
+                        },
+                        {
+                          \"type\": \"button\",
+                          \"text\": {\"type\": \"plain_text\", \"text\": \"🔗 View Commit\"},
+                          \"url\": \"$COMMIT_URL\"
+                        }
+                      ]
+                    }
+                  ]
+                }"
+              
+              # Flush cache (only for acc and prod)
+              if [[ "$ENVIRONMENT" == "acc" ]]; then
+                echo "Flushing cache for acc environment..."
+                curl -s -X POST https://homeapp.web.acc.guidion.io/api/v1/cache-flush \
+                  -H "Content-Type: application/json" \
+                  -H "x-api-key: $CACHE_FLUSH_API_KEY" \
+                  -d "{\"userId\": \"$USER_ID_FOR_CACHE_FLUSH\"}" || echo "Cache flush failed (non-critical)"
+              elif [[ "$ENVIRONMENT" == "prod" ]]; then
+                echo "Flushing cache for prod environment..."
+                curl -s -X POST https://homeapp.guidion.io/api/v1/cache-flush \
+                  -H "Content-Type: application/json" \
+                  -H "x-api-key: $CACHE_FLUSH_API_KEY" \
+                  -d "{\"userId\": \"$USER_ID_FOR_CACHE_FLUSH\"}" || echo "Cache flush failed (non-critical)"
+              fi
+              
+              # Delete the artifact (deployment is done)
+              echo "Deleting artifact..."
+              gh api --method DELETE repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID || echo "Failed to delete artifact"
+              
+            elif [[ "$STATUS" == "Failed" ]] || [[ "$STATUS" == "Canceled" ]]; then
+              echo "Deployment FAILED or was CANCELED!"
+              
+              # Get error details (escape quotes for JSON)
+              ERROR_MESSAGE=$(echo "$DEPLOY_STATUS" | jq -r '.result.errorMessage // .message // "Unknown error"' | head -c 500 | sed 's/"/\\"/g' | tr '\n' ' ')
+              
+              # Send Slack notification with retry instructions
+              curl -s -X POST https://slack.com/api/chat.postMessage \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $SLACK_TOKEN" \
+                -d "{
+                  \"channel\": \"$SLACK_CHANNEL\",
+                  \"text\": \"Salesforce deployment failed in $ENVIRONMENT\",
+                  \"blocks\": [
+                    {
+                      \"type\": \"section\",
+                      \"text\": {
+                        \"type\": \"mrkdwn\",
+                        \"text\": \"❌ *Salesforce Deployment Failed*\"
+                      }
+                    },
+                    {
+                      \"type\": \"section\",
+                      \"fields\": [
+                        {\"type\": \"mrkdwn\", \"text\": \"*Environment:*\n$ENVIRONMENT\"},
+                        {\"type\": \"mrkdwn\", \"text\": \"*Branch:*\n$BRANCH\"},
+                        {\"type\": \"mrkdwn\", \"text\": \"*Commit:*\n<$COMMIT_URL|\`${COMMIT_SHA:0:7}\`>\"},
+                        {\"type\": \"mrkdwn\", \"text\": \"*Deployed by:*\n$ACTOR\"},
+                        {\"type\": \"mrkdwn\", \"text\": \"*Job ID:*\n\`$JOB_ID\`\"}
+                      ]
+                    },
+                    {
+                      \"type\": \"section\",
+                      \"text\": {
+                        \"type\": \"mrkdwn\",
+                        \"text\": \"*Error:*\n\`\`\`$ERROR_MESSAGE\`\`\`\"
+                      }
+                    },
+                    {
+                      \"type\": \"divider\"
+                    },
+                    {
+                      \"type\": \"section\",
+                      \"text\": {
+                        \"type\": \"mrkdwn\",
+                        \"text\": \"*🔄 To retry:* Click 'View Workflow' below, then click *Re-run jobs* → *Re-run failed jobs*\"
+                      }
+                    },
+                    {
+                      \"type\": \"actions\",
+                      \"elements\": [
+                        {
+                          \"type\": \"button\",
+                          \"text\": {\"type\": \"plain_text\", \"text\": \"📋 View Workflow (Re-run here)\"},
+                          \"url\": \"$GITHUB_RUN_URL\",
+                          \"style\": \"primary\"
+                        },
+                        {
+                          \"type\": \"button\",
+                          \"text\": {\"type\": \"plain_text\", \"text\": \"🔗 View Commit\"},
+                          \"url\": \"$COMMIT_URL\"
+                        }
+                      ]
+                    }
+                  ]
+                }"
+              
+              # Delete the artifact (deployment is done, even if failed)
+              echo "Deleting artifact..."
+              gh api --method DELETE repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID || echo "Failed to delete artifact"
+              
+            else
+              echo "Deployment still in progress ($STATUS). Will check again in next poll."
+            fi
+            
+            # Cleanup
+            rm -rf artifact_temp artifact.zip
+            
+          done
+          
+          echo "=========================================="
+          echo "Polling complete."
+          echo "=========================================="

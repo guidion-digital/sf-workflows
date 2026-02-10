@@ -1,4 +1,4 @@
-name: Deploy to acc environment
+name: Deploy to prod environment
 
 on:
     workflow_call:
