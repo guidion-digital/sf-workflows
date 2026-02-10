@@ -94,9 +94,35 @@ jobs:
             GITHUB_RUN_URL=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_run_url')
             GITHUB_RUN_ID=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_run_id')
             STARTED_AT=$(echo "$DEPLOYMENT_INFO" | jq -r '.started_at')
+            SOURCE_REPO=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_repository // empty')
+            SOURCE_SERVER=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_server_url // empty')
+            SF_LOGIN_URL_FROM_INFO=$(echo "$DEPLOYMENT_INFO" | jq -r '.sf_login_url // empty')
+            PR_NUMBER=$(echo "$DEPLOYMENT_INFO" | jq -r '.pr_number // empty')
             
-            # Build commit URL for linking
-            COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/$COMMIT_SHA"
+            # Build commit URL using source repo (fix for cross-repo deployments)
+            if [ -n "$SOURCE_REPO" ] && [ -n "$SOURCE_SERVER" ]; then
+              COMMIT_URL="${SOURCE_SERVER}/${SOURCE_REPO}/commit/$COMMIT_SHA"
+              PR_URL="${SOURCE_SERVER}/${SOURCE_REPO}/pull/${PR_NUMBER}"
+            else
+              COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/$COMMIT_SHA"
+              PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
+            fi
+            
+            # Build PR field for Slack (only if PR number is available)
+            if [ -n "$PR_NUMBER" ]; then
+              PR_FIELD="{\"type\": \"mrkdwn\", \"text\": \"*PR:*\n<$PR_URL|#$PR_NUMBER>\"},"
+            else
+              PR_FIELD=""
+            fi
+            
+            # Build direct link to this specific deployment in Salesforce
+            if [ -n "$SF_LOGIN_URL_FROM_INFO" ]; then
+              # URL format: <instance>.lightning.force.com/lightning/setup/DeployStatus/page?address=<encoded_path>
+              SF_INSTANCE=$(echo "$SF_LOGIN_URL_FROM_INFO" | sed 's|https://||' | sed 's|\.my\.salesforce\.com.*||')
+              SF_DEPLOY_STATUS_URL="https://${SF_INSTANCE}.lightning.force.com/lightning/setup/DeployStatus/page?address=%2Fchangemgmt%2FmonitorDeploymentsDetails.apexp%3FasyncId%3D${JOB_ID}"
+            else
+              SF_DEPLOY_STATUS_URL=""
+            fi
             
             # Check if deployment is stale (older than 6 hours)
             STARTED_EPOCH=$(date -d "$STARTED_AT" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$STARTED_AT" +%s 2>/dev/null || echo "0")
@@ -105,6 +131,12 @@ jobs:
             
             if [ "$AGE_HOURS" -gt 6 ]; then
               echo "WARNING: Deployment is $AGE_HOURS hours old. Marking as stale."
+              
+              # Build SF button for stale notification
+              STALE_SF_BUTTON=""
+              if [ -n "$SF_DEPLOY_STATUS_URL" ]; then
+                STALE_SF_BUTTON=",{\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"🔍 Check in Salesforce\"}, \"url\": \"$SF_DEPLOY_STATUS_URL\"}"
+              fi
               
               # Send stale deployment notification
               curl -s -X POST https://slack.com/api/chat.postMessage \
@@ -129,6 +161,7 @@ jobs:
                           \"text\": {\"type\": \"plain_text\", \"text\": \"📋 View Workflow\"},
                           \"url\": \"$GITHUB_RUN_URL\"
                         }
+                        $STALE_SF_BUTTON
                       ]
                     }
                   ]
@@ -180,6 +213,12 @@ jobs:
             STATUS=$(echo "$DEPLOY_STATUS" | jq -r '.result.status // .status // "Unknown"')
             echo "Deployment status: $STATUS"
             
+            # Build SF deployment status button (used in both success and failure)
+            SF_BUTTON=""
+            if [ -n "$SF_DEPLOY_STATUS_URL" ]; then
+              SF_BUTTON=",{\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"🔍 SF Deploy Status\"}, \"url\": \"$SF_DEPLOY_STATUS_URL\"}"
+            fi
+            
             # Handle completed deployments
             if [[ "$STATUS" == "Succeeded" ]]; then
               echo "Deployment SUCCEEDED!"
@@ -204,6 +243,7 @@ jobs:
                       \"fields\": [
                         {\"type\": \"mrkdwn\", \"text\": \"*Environment:*\n$ENVIRONMENT\"},
                         {\"type\": \"mrkdwn\", \"text\": \"*Branch:*\n$BRANCH\"},
+                        $PR_FIELD
                         {\"type\": \"mrkdwn\", \"text\": \"*Commit:*\n<$COMMIT_URL|\`${COMMIT_SHA:0:7}\`>\"},
                         {\"type\": \"mrkdwn\", \"text\": \"*Deployed by:*\n$ACTOR\"},
                         {\"type\": \"mrkdwn\", \"text\": \"*Job ID:*\n\`$JOB_ID\`\"}
@@ -222,6 +262,7 @@ jobs:
                           \"text\": {\"type\": \"plain_text\", \"text\": \"🔗 View Commit\"},
                           \"url\": \"$COMMIT_URL\"
                         }
+                        $SF_BUTTON
                       ]
                     }
                   ]
@@ -246,11 +287,57 @@ jobs:
               echo "Deleting artifact..."
               gh api --method DELETE repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID || echo "Failed to delete artifact"
               
-            elif [[ "$STATUS" == "Failed" ]] || [[ "$STATUS" == "Canceled" ]]; then
-              echo "Deployment FAILED or was CANCELED!"
+            elif [[ "$STATUS" == "Canceled" ]]; then
+              echo "Deployment was CANCELED by user. Skipping Slack notification."
               
-              # Get error details (escape quotes for JSON)
-              ERROR_MESSAGE=$(echo "$DEPLOY_STATUS" | jq -r '.result.errorMessage // .message // "Unknown error"' | head -c 500 | sed 's/"/\\"/g' | tr '\n' ' ')
+              # Delete the artifact (deployment is done)
+              echo "Deleting artifact..."
+              gh api --method DELETE repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID || echo "Failed to delete artifact"
+              
+            elif [[ "$STATUS" == "Failed" ]]; then
+              echo "Deployment FAILED!"
+              
+              # Get comprehensive error details from the deploy report
+              # Try multiple fields where Salesforce might report errors
+              COMPONENT_FAILURES=$(echo "$DEPLOY_STATUS" | jq -r '
+                [.result.details.componentFailures // []] | 
+                if type == "array" then 
+                  .[] | "• \(.componentType): \(.fullName) - \(.problem // "unknown error")"
+                else 
+                  empty 
+                end' 2>/dev/null | head -10)
+              
+              TEST_FAILURES=$(echo "$DEPLOY_STATUS" | jq -r '
+                [.result.details.runTestResult.failures // []] |
+                if type == "array" then
+                  .[] | "• \(.name).\(.methodName): \(.message // "test failed")"
+                else
+                  empty
+                end' 2>/dev/null | head -5)
+              
+              GENERAL_ERROR=$(echo "$DEPLOY_STATUS" | jq -r '.result.errorMessage // .message // empty' 2>/dev/null)
+              
+              # Build error message
+              ERROR_MESSAGE=""
+              if [ -n "$COMPONENT_FAILURES" ]; then
+                ERROR_MESSAGE="Component Failures:\n$COMPONENT_FAILURES"
+              fi
+              if [ -n "$TEST_FAILURES" ]; then
+                [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="$ERROR_MESSAGE\n\n"
+                ERROR_MESSAGE="${ERROR_MESSAGE}Test Failures:\n$TEST_FAILURES"
+              fi
+              if [ -n "$GENERAL_ERROR" ] && [ "$GENERAL_ERROR" != "null" ]; then
+                [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="$ERROR_MESSAGE\n\n"
+                ERROR_MESSAGE="${ERROR_MESSAGE}$GENERAL_ERROR"
+              fi
+              
+              # Fallback if no specific errors found
+              if [ -z "$ERROR_MESSAGE" ]; then
+                ERROR_MESSAGE="No specific error details available. Check Salesforce deployment status for more info."
+              fi
+              
+              # Escape for JSON (limit to 1500 chars to fit Slack limits)
+              ERROR_MESSAGE=$(echo -e "$ERROR_MESSAGE" | head -c 1500 | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
               
               # Send Slack notification with retry instructions
               curl -s -X POST https://slack.com/api/chat.postMessage \
@@ -272,6 +359,7 @@ jobs:
                       \"fields\": [
                         {\"type\": \"mrkdwn\", \"text\": \"*Environment:*\n$ENVIRONMENT\"},
                         {\"type\": \"mrkdwn\", \"text\": \"*Branch:*\n$BRANCH\"},
+                        $PR_FIELD
                         {\"type\": \"mrkdwn\", \"text\": \"*Commit:*\n<$COMMIT_URL|\`${COMMIT_SHA:0:7}\`>\"},
                         {\"type\": \"mrkdwn\", \"text\": \"*Deployed by:*\n$ACTOR\"},
                         {\"type\": \"mrkdwn\", \"text\": \"*Job ID:*\n\`$JOB_ID\`\"}
@@ -281,7 +369,7 @@ jobs:
                       \"type\": \"section\",
                       \"text\": {
                         \"type\": \"mrkdwn\",
-                        \"text\": \"*Error:*\n\`\`\`$ERROR_MESSAGE\`\`\`\"
+                        \"text\": \"*Error Details:*\n\`\`\`$ERROR_MESSAGE\`\`\`\"
                       }
                     },
                     {
@@ -308,6 +396,7 @@ jobs:
                           \"text\": {\"type\": \"plain_text\", \"text\": \"🔗 View Commit\"},
                           \"url\": \"$COMMIT_URL\"
                         }
+                        $SF_BUTTON
                       ]
                     }
                   ]
