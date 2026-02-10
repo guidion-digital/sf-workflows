@@ -217,75 +217,18 @@ jobs:
             PR_URL=""
           fi
           
-          # Send Slack notification using Node.js (builds JSON properly and sends)
-          node << NODEJS_EOF
-const https = require('https');
-
-// Build fields array
-const fields = [
-  {type: 'mrkdwn', text: '*Environment:*\\n${ENVIRONMENT}'},
-  {type: 'mrkdwn', text: '*Branch:*\\n${BRANCH}'},
-];
-
-// Add PR field if available
-const prNumber = '${PR_NUMBER}';
-const prUrl = '${PR_URL}';
-if (prNumber) {
-  fields.push({type: 'mrkdwn', text: '*PR:*\\n<' + prUrl + '|#' + prNumber + '>'});
-}
-
-fields.push(
-  {type: 'mrkdwn', text: '*Commit:*\\n<${COMMIT_URL}|\`${SHORT_SHA}\`>'},
-  {type: 'mrkdwn', text: '*Started by:*\\n${ACTOR}'},
-  {type: 'mrkdwn', text: '*Job ID:*\\n\`${JOB_ID}\`'}
-);
-
-const payload = JSON.stringify({
-  channel: '${SLACK_CHANNEL}',
-  text: 'Salesforce deployment started in ${ENVIRONMENT}',
-  blocks: [
-    {type: 'section', text: {type: 'mrkdwn', text: '🚀 *Salesforce Deployment Started*'}},
-    {type: 'section', fields: fields},
-    {type: 'context', elements: [{type: 'mrkdwn', text: 'Deployment is running asynchronously. You will be notified when it completes.'}]},
-    {type: 'actions', elements: [
-      {type: 'button', text: {type: 'plain_text', text: '📋 View Workflow'}, url: '${GITHUB_RUN_URL}'},
-      {type: 'button', text: {type: 'plain_text', text: '🔗 View Commit'}, url: '${COMMIT_URL}'},
-      {type: 'button', text: {type: 'plain_text', text: '🔍 Track in Salesforce'}, url: '${SF_DEPLOY_URL}', style: 'primary'}
-    ]}
-  ]
-});
-
-const token = process.env.SLACK_TOKEN;
-const req = https.request({
-  hostname: 'slack.com',
-  path: '/api/chat.postMessage',
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer ' + token,
-    'Content-Length': Buffer.byteLength(payload)
-  }
-}, (res) => {
-  let data = '';
-  res.on('data', chunk => data += chunk);
-  res.on('end', () => {
-    try {
-      const response = JSON.parse(data);
-      if (response.ok) {
-        console.log('Slack notification sent successfully');
-      } else {
-        console.error('Slack error:', response.error);
-      }
-    } catch(e) {
-      console.error('Failed to parse response:', data);
-    }
-  });
-});
-
-req.on('error', e => console.error('Request error:', e.message));
-req.write(payload);
-req.end();
-NODEJS_EOF
+          # Build PR field for Slack (only if PR number is available)
+          if [ -n "$PR_NUMBER" ]; then
+            PR_FIELD="{\"type\": \"mrkdwn\", \"text\": \"*PR:*\n<${PR_URL}|#${PR_NUMBER}>\"},"
+          else
+            PR_FIELD=""
+          fi
+          
+          # Send Slack notification (curl with inline JSON - keeps { on same line as -d)
+          curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $SLACK_TOKEN" \
+            -d "{\"channel\": \"${SLACK_CHANNEL}\", \"text\": \"Salesforce deployment started in ${ENVIRONMENT}\", \"blocks\": [{\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": \"🚀 *Salesforce Deployment Started*\"}}, {\"type\": \"section\", \"fields\": [{\"type\": \"mrkdwn\", \"text\": \"*Environment:*\n${ENVIRONMENT}\"}, {\"type\": \"mrkdwn\", \"text\": \"*Branch:*\n${BRANCH}\"}, ${PR_FIELD}{\"type\": \"mrkdwn\", \"text\": \"*Commit:*\n<${COMMIT_URL}|\`${SHORT_SHA}\`>\"}, {\"type\": \"mrkdwn\", \"text\": \"*Started by:*\n${ACTOR}\"}, {\"type\": \"mrkdwn\", \"text\": \"*Job ID:*\n\`${JOB_ID}\`\"}]}, {\"type\": \"context\", \"elements\": [{\"type\": \"mrkdwn\", \"text\": \"Deployment is running asynchronously. You will be notified when it completes.\"}]}, {\"type\": \"actions\", \"elements\": [{\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"📋 View Workflow\"}, \"url\": \"${GITHUB_RUN_URL}\"}, {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"🔗 View Commit\"}, \"url\": \"${COMMIT_URL}\"}, {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"🔍 Track in Salesforce\"}, \"url\": \"${SF_DEPLOY_URL}\", \"style\": \"primary\"}]}]}"
           
           echo "Deployment started notification complete"
 
