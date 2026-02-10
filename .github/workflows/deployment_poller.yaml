@@ -9,6 +9,11 @@ on:
   # Manual trigger for testing
   workflow_dispatch:
 
+# Permissions needed to read/delete artifacts
+permissions:
+  actions: write    # Required to delete artifacts
+  contents: read    # Required to access repo
+
 jobs:
   poll-deployments:
     runs-on: ubuntu-latest
