@@ -157,26 +157,26 @@ jobs:
           # Write deployment info for the poller workflow
           # Note: PR number is only available when triggered by a pull_request event
           PR_NUMBER="${{ github.event.pull_request.number }}"
-          cat > deployment-info.json <<EOF
-{
-  "job_id": "$JOB_ID",
-  "environment": "${{ inputs.environment_name }}",
-  "target_org": "${{ inputs.sf_target_org }}",
-  "test_level": "$TEST_LEVEL",
-  "source_dir": "${{ inputs.source_dir }}",
-  "commit_sha": "${{ github.sha }}",
-  "branch": "${{ inputs.branch }}",
-  "actor": "${{ github.actor }}",
-  "slack_channel": "${{ inputs.slack_channel }}",
-  "github_run_id": "${{ github.run_id }}",
-  "github_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-  "github_repository": "${{ github.repository }}",
-  "github_server_url": "${{ github.server_url }}",
-  "sf_login_url": "${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}",
-  "pr_number": "${PR_NUMBER}",
-  "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-EOF
+          # Use jq to build proper JSON (avoids escaping issues)
+          jq -n \
+            --arg job_id "$JOB_ID" \
+            --arg environment "${{ inputs.environment_name }}" \
+            --arg target_org "${{ inputs.sf_target_org }}" \
+            --arg test_level "$TEST_LEVEL" \
+            --arg source_dir "${{ inputs.source_dir }}" \
+            --arg commit_sha "${{ github.sha }}" \
+            --arg branch "${{ inputs.branch }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg slack_channel "${{ inputs.slack_channel }}" \
+            --arg github_run_id "${{ github.run_id }}" \
+            --arg github_run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg github_repository "${{ github.repository }}" \
+            --arg github_server_url "${{ github.server_url }}" \
+            --arg sf_login_url "${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}" \
+            --arg pr_number "$PR_NUMBER" \
+            --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{job_id: $job_id, environment: $environment, target_org: $target_org, test_level: $test_level, source_dir: $source_dir, commit_sha: $commit_sha, branch: $branch, actor: $actor, slack_channel: $slack_channel, github_run_id: $github_run_id, github_run_url: $github_run_url, github_repository: $github_repository, github_server_url: $github_server_url, sf_login_url: $sf_login_url, pr_number: $pr_number, started_at: $started_at}' \
+            > deployment-info.json
           
           echo "Deployment info saved to deployment-info.json"
           cat deployment-info.json
@@ -210,65 +210,74 @@ EOF
           SF_INSTANCE=$(echo "$SF_LOGIN_URL" | sed 's|https://||' | sed 's|\.my\.salesforce\.com.*||')
           SF_DEPLOY_URL="https://${SF_INSTANCE}.lightning.force.com/lightning/setup/DeployStatus/page?address=%2Fchangemgmt%2FmonitorDeploymentsDetails.apexp%3FasyncId%3D${JOB_ID}"
           
-          # Build PR field (only if PR number is available)
+          # Build PR URL (only if PR number is available)
           if [ -n "$PR_NUMBER" ]; then
             PR_URL="${SERVER_URL}/${REPO}/pull/${PR_NUMBER}"
-            PR_FIELD="{\"type\": \"mrkdwn\", \"text\": \"*PR:*\n<${PR_URL}|#${PR_NUMBER}>\"},"
           else
-            PR_FIELD=""
+            PR_URL=""
           fi
           
-          # Write Slack payload to file (avoids heredoc/escaping issues)
-          cat > /tmp/slack-payload.json <<EOF
-{
-  "channel": "${SLACK_CHANNEL}",
-  "text": "Salesforce deployment started in ${ENVIRONMENT}",
-  "blocks": [
-    {"type": "section", "text": {"type": "mrkdwn", "text": "🚀 *Salesforce Deployment Started*"}},
-    {"type": "section", "fields": [
-      {"type": "mrkdwn", "text": "*Environment:*\n${ENVIRONMENT}"},
-      {"type": "mrkdwn", "text": "*Branch:*\n${BRANCH}"},
-      ${PR_FIELD}
-      {"type": "mrkdwn", "text": "*Commit:*\n<${COMMIT_URL}|\`${SHORT_SHA}\`>"},
-      {"type": "mrkdwn", "text": "*Started by:*\n${ACTOR}"},
-      {"type": "mrkdwn", "text": "*Job ID:*\n\`${JOB_ID}\`"}
-    ]},
-    {"type": "context", "elements": [{"type": "mrkdwn", "text": "Deployment is running asynchronously. You'll be notified when it completes."}]},
-    {"type": "actions", "elements": [
-      {"type": "button", "text": {"type": "plain_text", "text": "📋 View Workflow"}, "url": "${GITHUB_RUN_URL}"},
-      {"type": "button", "text": {"type": "plain_text", "text": "🔗 View Commit"}, "url": "${COMMIT_URL}"},
-      {"type": "button", "text": {"type": "plain_text", "text": "🔍 Track in Salesforce"}, "url": "${SF_DEPLOY_URL}", "style": "primary"}
+          # Send Slack notification using Node.js (builds JSON properly and sends)
+          node << NODEJS_EOF
+const https = require('https');
+
+// Build fields array
+const fields = [
+  {type: 'mrkdwn', text: '*Environment:*\\n${ENVIRONMENT}'},
+  {type: 'mrkdwn', text: '*Branch:*\\n${BRANCH}'},
+];
+
+// Add PR field if available
+const prNumber = '${PR_NUMBER}';
+const prUrl = '${PR_URL}';
+if (prNumber) {
+  fields.push({type: 'mrkdwn', text: '*PR:*\\n<' + prUrl + '|#' + prNumber + '>'});
+}
+
+fields.push(
+  {type: 'mrkdwn', text: '*Commit:*\\n<${COMMIT_URL}|\`${SHORT_SHA}\`>'},
+  {type: 'mrkdwn', text: '*Started by:*\\n${ACTOR}'},
+  {type: 'mrkdwn', text: '*Job ID:*\\n\`${JOB_ID}\`'}
+);
+
+const payload = JSON.stringify({
+  channel: '${SLACK_CHANNEL}',
+  text: 'Salesforce deployment started in ${ENVIRONMENT}',
+  blocks: [
+    {type: 'section', text: {type: 'mrkdwn', text: '🚀 *Salesforce Deployment Started*'}},
+    {type: 'section', fields: fields},
+    {type: 'context', elements: [{type: 'mrkdwn', text: 'Deployment is running asynchronously. You will be notified when it completes.'}]},
+    {type: 'actions', elements: [
+      {type: 'button', text: {type: 'plain_text', text: '📋 View Workflow'}, url: '${GITHUB_RUN_URL}'},
+      {type: 'button', text: {type: 'plain_text', text: '🔗 View Commit'}, url: '${COMMIT_URL}'},
+      {type: 'button', text: {type: 'plain_text', text: '🔍 Track in Salesforce'}, url: '${SF_DEPLOY_URL}', style: 'primary'}
     ]}
   ]
-}
-EOF
-          
-          # Send Slack notification using Node.js (always available in SF CLI container)
-          node <<'NODEJS_EOF'
-const https = require('https');
-const fs = require('fs');
+});
 
-const payload = fs.readFileSync('/tmp/slack-payload.json', 'utf8');
 const token = process.env.SLACK_TOKEN;
-
 const req = https.request({
   hostname: 'slack.com',
   path: '/api/chat.postMessage',
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
+    'Authorization': 'Bearer ' + token,
     'Content-Length': Buffer.byteLength(payload)
   }
 }, (res) => {
   let data = '';
   res.on('data', chunk => data += chunk);
   res.on('end', () => {
-    const response = JSON.parse(data);
-    if (response.ok) {
-      console.log('Slack notification sent successfully');
-    } else {
-      console.error('Slack error:', response.error);
+    try {
+      const response = JSON.parse(data);
+      if (response.ok) {
+        console.log('Slack notification sent successfully');
+      } else {
+        console.error('Slack error:', response.error);
+      }
+    } catch(e) {
+      console.error('Failed to parse response:', data);
     }
   });
 });
