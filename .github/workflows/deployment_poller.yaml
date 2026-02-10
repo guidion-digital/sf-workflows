@@ -115,11 +115,9 @@ jobs:
               PR_FIELD=""
             fi
             
-            # Build direct link to this specific deployment in Salesforce
+            # Build direct link to this specific deployment in Salesforce (use base URL directly)
             if [ -n "$SF_LOGIN_URL_FROM_INFO" ]; then
-              # URL format: <instance>.lightning.force.com/lightning/setup/DeployStatus/page?address=<encoded_path>
-              SF_INSTANCE=$(echo "$SF_LOGIN_URL_FROM_INFO" | sed 's|https://||' | sed 's|\.my\.salesforce\.com.*||')
-              SF_DEPLOY_STATUS_URL="https://${SF_INSTANCE}.lightning.force.com/lightning/setup/DeployStatus/page?address=%2Fchangemgmt%2FmonitorDeploymentsDetails.apexp%3FasyncId%3D${JOB_ID}"
+              SF_DEPLOY_STATUS_URL="${SF_LOGIN_URL_FROM_INFO}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${JOB_ID}"
             else
               SF_DEPLOY_STATUS_URL=""
             fi
