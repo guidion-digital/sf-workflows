@@ -17,11 +17,8 @@ permissions:
 jobs:
   poll-deployments:
     runs-on: ubuntu-latest
-    # Note: Not using salesforce/cli container because we need gh CLI and unzip
+    container: salesforce/cli:latest-slim
     steps:
-      - name: Install Salesforce CLI
-        run: npm install -g @salesforce/cli
-
       - name: Find pending deployment artifacts
         id: find_artifacts
         env:
