@@ -17,8 +17,11 @@ permissions:
 jobs:
   poll-deployments:
     runs-on: ubuntu-latest
-    container: salesforce/cli:latest-slim
+    # Note: Not using salesforce/cli container because we need gh CLI and unzip
     steps:
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
       - name: Find pending deployment artifacts
         id: find_artifacts
         env:
@@ -112,9 +115,11 @@ jobs:
               PR_FIELD=""
             fi
             
-            # Build direct link to this specific deployment in Salesforce (use base URL directly)
+            # Build direct link to this specific deployment in Salesforce
             if [ -n "$SF_LOGIN_URL_FROM_INFO" ]; then
-              SF_DEPLOY_STATUS_URL="${SF_LOGIN_URL_FROM_INFO}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${JOB_ID}"
+              # URL format: <instance>.lightning.force.com/lightning/setup/DeployStatus/page?address=<encoded_path>
+              SF_INSTANCE=$(echo "$SF_LOGIN_URL_FROM_INFO" | sed 's|https://||' | sed 's|\.my\.salesforce\.com.*||')
+              SF_DEPLOY_STATUS_URL="https://${SF_INSTANCE}.lightning.force.com/lightning/setup/DeployStatus/page?address=%2Fchangemgmt%2FmonitorDeploymentsDetails.apexp%3FasyncId%3D${JOB_ID}"
             else
               SF_DEPLOY_STATUS_URL=""
             fi
