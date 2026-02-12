@@ -8,7 +8,7 @@ on:
   workflow_call:
     inputs:
       slack_channel:
-        description: Channel to notifify about a deployment
+        description: Channel to notify about a deployment
         type: string
         required: false
         default: 'tectonic-code'
