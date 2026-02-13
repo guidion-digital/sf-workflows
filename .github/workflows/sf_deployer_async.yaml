@@ -206,8 +206,9 @@ jobs:
           REPO="${{ github.repository }}"
           SERVER_URL="${{ github.server_url }}"
           
-          # Build direct link to this specific deployment in Salesforce (use base URL directly)
-          SF_DEPLOY_URL="${SF_LOGIN_URL}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${JOB_ID}"
+          # Build direct link to this specific deployment in Salesforce
+          SF_BASE_URL="https://guidion--develop.sandbox.my.salesforce.com"
+          SF_DEPLOY_URL="${SF_BASE_URL}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${JOB_ID}"
           
           # Build PR URL (only if PR number is available)
           if [ -n "$PR_NUMBER" ]; then
