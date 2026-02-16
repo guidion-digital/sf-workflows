@@ -210,9 +210,12 @@ jobs:
           SERVER_URL="${{ github.server_url }}"
           
           # Build direct link to this specific deployment in Salesforce
-          ENV_UPPER=$(echo "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')
-          SF_BASE_URL_VAR="SF_BASE_URL_${ENV_UPPER}"
-          SF_BASE_URL="${!SF_BASE_URL_VAR}"
+          case "$ENVIRONMENT" in
+            dev)  SF_BASE_URL="$SF_BASE_URL_DEV" ;;
+            acc)  SF_BASE_URL="$SF_BASE_URL_ACC" ;;
+            prod) SF_BASE_URL="$SF_BASE_URL_PROD" ;;
+            *)    SF_BASE_URL="" ;;
+          esac
           SF_DEPLOY_URL="${SF_BASE_URL}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${JOB_ID}"
           
           # Build PR URL (only if PR number is available)
