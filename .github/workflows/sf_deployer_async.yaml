@@ -1,8 +1,8 @@
-name: "[ASYNC TEST] Deploy sf-home to the <inputs.environment_name> environment"
+name: "Deploy to the <inputs.environment_name> environment (async)"
 
-# This is a TEST version of sf_deployer.yaml that uses async deployments.
-# Use this to test the async deployment + poller workflow before switching.
-# Once tested, this will replace sf_deployer.yaml
+# Async version of sf_deployer.yaml.
+# Kicks off deployment and exits immediately. The deployment_poller.yaml
+# workflow monitors the result and sends Slack notifications on completion.
 
 on:
   workflow_call:
@@ -204,7 +204,6 @@ jobs:
           SLACK_CHANNEL="${{ inputs.slack_channel }}"
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
-          SF_LOGIN_URL="${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
           REPO="${{ github.repository }}"
           SERVER_URL="${{ github.server_url }}"

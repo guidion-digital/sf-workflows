@@ -80,7 +80,7 @@ jobs:
             
             # Download the artifact
             mkdir -p artifact_temp
-            gh api repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip > artifact.zip
+            gh api "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip" > artifact.zip
             unzip -o artifact.zip -d artifact_temp
             
             # Read deployment info
@@ -97,11 +97,9 @@ jobs:
             BRANCH=$(echo "$DEPLOYMENT_INFO" | jq -r '.branch')
             ACTOR=$(echo "$DEPLOYMENT_INFO" | jq -r '.actor')
             GITHUB_RUN_URL=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_run_url')
-            GITHUB_RUN_ID=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_run_id')
             STARTED_AT=$(echo "$DEPLOYMENT_INFO" | jq -r '.started_at')
             SOURCE_REPO=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_repository // empty')
             SOURCE_SERVER=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_server_url // empty')
-            SF_LOGIN_URL_FROM_INFO=$(echo "$DEPLOYMENT_INFO" | jq -r '.sf_login_url // empty')
             PR_NUMBER=$(echo "$DEPLOYMENT_INFO" | jq -r '.pr_number // empty')
             
             # Build commit URL using source repo (fix for cross-repo deployments)
@@ -173,7 +171,7 @@ jobs:
                 }"
               
               # Delete the stale artifact
-              gh api --method DELETE repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID || echo "Failed to delete artifact"
+              gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}" || echo "Failed to delete artifact"
               rm -rf artifact_temp artifact.zip
               continue
             fi
@@ -289,14 +287,14 @@ jobs:
               
               # Delete the artifact (deployment is done)
               echo "Deleting artifact..."
-              gh api --method DELETE repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID || echo "Failed to delete artifact"
+              gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}" || echo "Failed to delete artifact"
               
             elif [[ "$STATUS" == "Canceled" ]]; then
               echo "Deployment was CANCELED by user. Skipping Slack notification."
               
               # Delete the artifact (deployment is done)
               echo "Deleting artifact..."
-              gh api --method DELETE repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID || echo "Failed to delete artifact"
+              gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}" || echo "Failed to delete artifact"
               
             elif [[ "$STATUS" == "Failed" ]]; then
               echo "Deployment FAILED!"
@@ -408,7 +406,7 @@ jobs:
               
               # Delete the artifact (deployment is done, even if failed)
               echo "Deleting artifact..."
-              gh api --method DELETE repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID || echo "Failed to delete artifact"
+              gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}" || echo "Failed to delete artifact"
               
             else
               echo "Deployment still in progress ($STATUS). Will check again in next poll."

@@ -107,84 +107,56 @@ jobs:
           else
             echo "No test classes found in sf_scripts test suite"
           fi
-      - name: Deploy (async)
-        id: deploy
+      - name: Deploy with specified tests
+        if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes != '' }}
         run: |
-          # Determine test level
-          CONFIGURED_TEST_LEVEL="${{ inputs.sf_testlevel || vars.SF_TESTLEVEL }}"
-          TEST_CLASSES="${{ steps.get_tests.outputs.test_classes }}"
-          
-          # Build deploy command arguments
-          if [[ "$CONFIGURED_TEST_LEVEL" == "RunSpecifiedTests" && -n "$TEST_CLASSES" ]]; then
-            TEST_LEVEL="RunSpecifiedTests"
-            EXTRA_ARGS="--tests $TEST_CLASSES"
-            echo "Deploying ${{ inputs.source_dir }} with RunSpecifiedTests"
-            echo "Running tests: $TEST_CLASSES"
-          elif [[ "$CONFIGURED_TEST_LEVEL" == "NoTestRun" ]]; then
-            TEST_LEVEL="NoTestRun"
-            EXTRA_ARGS=""
-            echo "Deploying ${{ inputs.source_dir }} with NoTestRun"
-          else
-            # Default to RunLocalTests (also fallback when RunSpecifiedTests but no test classes found)
-            TEST_LEVEL="RunLocalTests"
-            EXTRA_ARGS=""
-            if [[ "$CONFIGURED_TEST_LEVEL" == "RunSpecifiedTests" ]]; then
-              echo "No test classes found in test suite, falling back to RunLocalTests"
-            else
-              echo "Deploying ${{ inputs.source_dir }} with RunLocalTests"
-            fi
-          fi
-          
-          # Run async deployment
-          DEPLOY_OUTPUT=$(sf project deploy start \
+          echo "Deploying ${{ inputs.source_dir }} with RunSpecifiedTests"
+          echo "Running tests: ${{ steps.get_tests.outputs.test_classes }}"
+          sf project deploy start \
             --source-dir "${{ inputs.source_dir }}" \
-            --test-level "$TEST_LEVEL" \
-            $EXTRA_ARGS \
+            --test-level RunSpecifiedTests \
+            --tests ${{ steps.get_tests.outputs.test_classes }} \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts \
-            --async \
-            --json)
-          
-          # Extract Job ID
-          JOB_ID=$(echo "$DEPLOY_OUTPUT" | jq -r '.result.id')
-          echo "Deployment started with Job ID: $JOB_ID"
-          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
-          
-          # Write deployment info for the poller workflow
-          cat > deployment-info.json << EOF
-          {
-            "job_id": "$JOB_ID",
-            "environment": "${{ inputs.environment_name }}",
-            "target_org": "${{ inputs.sf_target_org }}",
-            "test_level": "$TEST_LEVEL",
-            "source_dir": "${{ inputs.source_dir }}",
-            "commit_sha": "${{ github.sha }}",
-            "branch": "${{ inputs.branch }}",
-            "actor": "${{ github.actor }}",
-            "slack_channel": "${{ inputs.slack_channel }}",
-            "github_run_id": "${{ github.run_id }}",
-            "github_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
-          
-          echo "Deployment info saved to deployment-info.json"
-          cat deployment-info.json
+            --wait 180
+      - name: Deploy with RunLocalTests (fallback)
+        if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunSpecifiedTests' && steps.get_tests.outputs.test_classes == '' }}
+        run: |
+          echo "No test classes found in sf_scripts test suite, falling back to RunLocalTests"
+          sf project deploy start \
+            --source-dir "${{ inputs.source_dir }}" \
+            --test-level RunLocalTests \
+            --target-org "${{ inputs.sf_target_org }}" \
+            --ignore-conflicts \
+            --wait 180
+      - name: Deploy without tests when NoTestRun is set
+        if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'NoTestRun' }}
+        run: |
+          echo "Deploying ${{ inputs.source_dir }} with NoTestRun"
+          sf project deploy start \
+            --source-dir "${{ inputs.source_dir }}" \
+            --test-level NoTestRun \
+            --target-org "${{ inputs.sf_target_org }}" \
+            --ignore-conflicts \
+            --wait 180
+      - name: Deploy with all test when NoTestRun is not set
+        if: ${{ (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == '' || (inputs.sf_testlevel || vars.SF_TESTLEVEL || '') == 'RunLocalTests' }}
+        run: |
+          echo "Deploying ${{ inputs.source_dir }} with RunLocalTests"
+          sf project deploy start \
+            --source-dir "${{ inputs.source_dir }}" \
+            --test-level RunLocalTests \
+            --target-org "${{ inputs.sf_target_org }}" \
+            --ignore-conflicts \
+            --wait 180
 
-      - name: Upload deployment info artifact
-        uses: actions/upload-artifact@v4
+  notify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify devs
+        uses: guidion-digital/slack-notifications@v1
         with:
-          name: pending-deployment-${{ github.run_id }}
-          path: deployment-info.json
-          retention-days: 7
-
-  # notify:
-  #   needs: deploy
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Notify devs
-  #       uses: guidion-digital/slack-notifications@v1
-  #       with:
-  #         slack_channel: ${{ inputs.slack_channel }}
-  #         slack_token: ${{ secrets.SLACK_TOKEN }}
-  #         workflow_status: ${{ needs.deploy.result }}
+          slack_channel: ${{ inputs.slack_channel }}
+          slack_token: ${{ secrets.SLACK_TOKEN }}
+          workflow_status: ${{ needs.deploy.result }}
