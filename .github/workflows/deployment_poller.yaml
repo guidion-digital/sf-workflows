@@ -2,9 +2,9 @@ name: Poll Salesforce Deployment Status
 
 on:
   # Scheduled polling - uncomment when ready for production
+  # Cron runs in UTC — these cover 8:00–20:00 CET (7:00–19:00 UTC) / CEST (6:00–18:00 UTC)
   # schedule:
-  #   # Run every 10 minutes
-  #   - cron: '*/10 * * * *'
+  #   - cron: '*/10 6-19 * * 1-5'
   
   # Manual trigger for testing
   workflow_dispatch:
