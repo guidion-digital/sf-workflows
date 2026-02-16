@@ -30,7 +30,7 @@ jobs:
           echo "Searching for pending deployment artifacts..."
           
           # List all artifacts matching our naming pattern (fetch up to 100)
-          ARTIFACTS=$(gh api repos/${{ github.repository }}/actions/artifacts?per_page=100 \
+          ARTIFACTS=$(gh api "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
             --jq '.artifacts[] | select(.name | startswith("pending-deployment-")) | {id: .id, name: .name, run_id: (.name | split("-") | .[-1])}')
           
           if [ -z "$ARTIFACTS" ]; then
@@ -302,20 +302,16 @@ jobs:
               # Get comprehensive error details from the deploy report
               # Try multiple fields where Salesforce might report errors
               COMPONENT_FAILURES=$(echo "$DEPLOY_STATUS" | jq -r '
-                [.result.details.componentFailures // []] | 
-                if type == "array" then 
-                  .[] | "• \(.componentType): \(.fullName) - \(.problem // "unknown error")"
-                else 
-                  empty 
-                end' 2>/dev/null | head -10)
+                (.result.details.componentFailures // []) |
+                if type == "array" then .[] else . end |
+                "• \(.componentType): \(.fullName) - \(.problem // "unknown error")"
+                ' 2>/dev/null | head -10)
               
               TEST_FAILURES=$(echo "$DEPLOY_STATUS" | jq -r '
-                [.result.details.runTestResult.failures // []] |
-                if type == "array" then
-                  .[] | "• \(.name).\(.methodName): \(.message // "test failed")"
-                else
-                  empty
-                end' 2>/dev/null | head -5)
+                (.result.details.runTestResult.failures // []) |
+                if type == "array" then .[] else . end |
+                "• \(.name).\(.methodName): \(.message // "test failed")"
+                ' 2>/dev/null | head -5)
               
               GENERAL_ERROR=$(echo "$DEPLOY_STATUS" | jq -r '.result.errorMessage // .message // empty' 2>/dev/null)
               

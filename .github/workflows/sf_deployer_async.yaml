@@ -62,7 +62,7 @@ on:
         description: Salesforce consumer key
         required: false
       SF_CLIENT_KEY:
-        description: Salesforce consumer key
+        description: Salesforce client key (base64 encoded)
         required: false
       JWT_KEY_B64:
         description: Salesforce JWT key (base64 encoded)
@@ -91,7 +91,7 @@ jobs:
             --username "${{ inputs.sf_username || vars.SF_USERNAME }}" \
             --client-id "${{ inputs.sf_client_id || vars.SF_CLIENT_ID || secrets.SF_CLIENT_ID }}" \
             --jwt-key-file jwt-key.key \
-            --alias ${{ inputs.sf_target_org }}
+            --alias "${{ inputs.sf_target_org }}"
           rm jwt-key.key
       - name: Get Test Classes from Test Suite
         id: get_tests
