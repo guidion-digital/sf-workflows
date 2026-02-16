@@ -61,6 +61,10 @@ jobs:
           SF_USERNAME_PROD: ${{ vars.SF_USERNAME_PROD }}
           SF_CLIENT_ID_PROD: ${{ vars.SF_CLIENT_ID_PROD }}
           SF_CLIENT_KEY_PROD: ${{ secrets.SF_CLIENT_KEY_PROD }}
+          # SF base URLs per environment (for deployment status links)
+          SF_BASE_URL_DEV: ${{ vars.SF_BASE_URL_DEV }}
+          SF_BASE_URL_ACC: ${{ vars.SF_BASE_URL_ACC }}
+          SF_BASE_URL_PROD: ${{ vars.SF_BASE_URL_PROD }}
           # Cache flush
           CACHE_FLUSH_API_KEY: ${{ secrets.CACHE_FLUSH_API_KEY }}
           USER_ID_FOR_CACHE_FLUSH: ${{ vars.USER_ID_FOR_CACHE_FLUSH }}
@@ -86,6 +90,7 @@ jobs:
             
             JOB_ID=$(echo "$DEPLOYMENT_INFO" | jq -r '.job_id')
             ENVIRONMENT=$(echo "$DEPLOYMENT_INFO" | jq -r '.environment')
+            ENV_UPPER=$(echo "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')
             TARGET_ORG=$(echo "$DEPLOYMENT_INFO" | jq -r '.target_org')
             SLACK_CHANNEL=$(echo "$DEPLOYMENT_INFO" | jq -r '.slack_channel')
             COMMIT_SHA=$(echo "$DEPLOYMENT_INFO" | jq -r '.commit_sha')
@@ -115,9 +120,11 @@ jobs:
               PR_FIELD=""
             fi
             
-            # Build direct link to this specific deployment in Salesforce (use base URL directly)
-            if [ -n "$SF_LOGIN_URL_FROM_INFO" ]; then
-              SF_DEPLOY_STATUS_URL="${SF_LOGIN_URL_FROM_INFO}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${JOB_ID}"
+            # Build direct link to this specific deployment in Salesforce
+            SF_BASE_URL_VAR="SF_BASE_URL_${ENV_UPPER}"
+            SF_BASE_URL="${!SF_BASE_URL_VAR}"
+            if [ -n "$SF_BASE_URL" ]; then
+              SF_DEPLOY_STATUS_URL="${SF_BASE_URL}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${JOB_ID}"
             else
               SF_DEPLOY_STATUS_URL=""
             fi
@@ -172,7 +179,6 @@ jobs:
             fi
             
             # Get environment-specific credentials
-            ENV_UPPER=$(echo "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')
             SF_LOGIN_URL_VAR="SF_LOGIN_URL_${ENV_UPPER}"
             SF_USERNAME_VAR="SF_USERNAME_${ENV_UPPER}"
             SF_CLIENT_ID_VAR="SF_CLIENT_ID_${ENV_UPPER}"
