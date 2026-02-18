@@ -76,6 +76,9 @@ jobs:
     environment: ${{ inputs.environment_name }}
     runs-on: ubuntu-latest
     container: salesforce/cli:latest-slim
+    outputs:
+      job_id: ${{ steps.deploy.outputs.job_id }}
+      sf_deploy_url: ${{ steps.sf_url.outputs.url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
@@ -188,56 +191,38 @@ jobs:
           path: deployment-info.json
           retention-days: 7
 
-      - name: Notify deployment started
+      - name: Build SF deploy URL
+        id: sf_url
         env:
-          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
           SF_BASE_URL_DEV: ${{ vars.SF_BASE_URL_DEV }}
           SF_BASE_URL_ACC: ${{ vars.SF_BASE_URL_ACC }}
           SF_BASE_URL_PROD: ${{ vars.SF_BASE_URL_PROD }}
         run: |
-          JOB_ID="${{ steps.deploy.outputs.job_id }}"
-          ENVIRONMENT="${{ inputs.environment_name }}"
-          BRANCH="${{ inputs.branch }}"
-          ACTOR="${{ github.actor }}"
-          COMMIT_SHA="${{ github.sha }}"
-          SHORT_SHA=$(printf '%.7s' "$COMMIT_SHA")
-          SLACK_CHANNEL="${{ inputs.slack_channel }}"
-          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          REPO="${{ github.repository }}"
-          SERVER_URL="${{ github.server_url }}"
-          
-          # Build direct link to this specific deployment in Salesforce
-          case "$ENVIRONMENT" in
+          case "${{ inputs.environment_name }}" in
             dev)  SF_BASE_URL="$SF_BASE_URL_DEV" ;;
             acc)  SF_BASE_URL="$SF_BASE_URL_ACC" ;;
             prod) SF_BASE_URL="$SF_BASE_URL_PROD" ;;
             *)    SF_BASE_URL="" ;;
           esac
-          SF_DEPLOY_URL="${SF_BASE_URL}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${JOB_ID}"
-          
-          # Build PR URL (only if PR number is available)
-          if [ -n "$PR_NUMBER" ]; then
-            PR_URL="${SERVER_URL}/${REPO}/pull/${PR_NUMBER}"
-          else
-            PR_URL=""
+          if [ -n "$SF_BASE_URL" ]; then
+            echo "url=${SF_BASE_URL}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${{ steps.deploy.outputs.job_id }}" >> "$GITHUB_OUTPUT"
           fi
-          
-          # Build PR field for Slack (only if PR number is available)
-          if [ -n "$PR_NUMBER" ]; then
-            PR_FIELD="{\"type\": \"mrkdwn\", \"text\": \"*PR:*\n<${PR_URL}|#${PR_NUMBER}>\"},"
-          else
-            PR_FIELD=""
-          fi
-          
-          # Send Slack notification (curl with inline JSON - keeps { on same line as -d)
-          curl -s -X POST https://slack.com/api/chat.postMessage \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $SLACK_TOKEN" \
-            -d "{\"channel\": \"${SLACK_CHANNEL}\", \"text\": \"Salesforce deployment started in ${ENVIRONMENT}\", \"blocks\": [{\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": \"🚀 *Salesforce Deployment Started*\"}}, {\"type\": \"section\", \"fields\": [{\"type\": \"mrkdwn\", \"text\": \"*Environment:*\n${ENVIRONMENT}\"}, {\"type\": \"mrkdwn\", \"text\": \"*Branch:*\n${BRANCH}\"}, ${PR_FIELD}{\"type\": \"mrkdwn\", \"text\": \"*Commit:*\n<${COMMIT_URL}|\`${SHORT_SHA}\`>\"}, {\"type\": \"mrkdwn\", \"text\": \"*Started by:*\n${ACTOR}\"}, {\"type\": \"mrkdwn\", \"text\": \"*Job ID:*\n\`${JOB_ID}\`\"}]}, {\"type\": \"context\", \"elements\": [{\"type\": \"mrkdwn\", \"text\": \"Deployment is running asynchronously. You will be notified when it completes.\"}]}, {\"type\": \"actions\", \"elements\": [{\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"📋 View Workflow\"}, \"url\": \"${GITHUB_RUN_URL}\"}, {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"🔗 View Commit\"}, \"url\": \"${COMMIT_URL}\"}, {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"🔍 Track in Salesforce\"}, \"url\": \"${SF_DEPLOY_URL}\", \"style\": \"primary\"}]}]}"
-          
-          echo "Deployment started notification complete"
 
-  # NOTE: The deployment_poller.yaml handles completion notifications
-  # after the async deployment succeeds or fails
+  # Completion notifications are handled by deployment_poller.yaml
+
+  notify:
+    needs: deploy
+    if: needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify deployment started
+        uses: guidion-digital/slack-notifications@v2
+        with:
+          slack_channel: ${{ inputs.slack_channel }}
+          slack_token: ${{ secrets.SLACK_TOKEN }}
+          message_type: deployment
+          deployment_status: started
+          environment: ${{ inputs.environment_name }}
+          branch: ${{ inputs.branch }}
+          commit_url: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+          sf_deploy_url: ${{ needs.deploy.outputs.sf_deploy_url }}

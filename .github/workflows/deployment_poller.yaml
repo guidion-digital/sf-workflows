@@ -19,9 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     # Note: Not using salesforce/cli container because we need gh CLI and unzip
     steps:
-      - name: Install Salesforce CLI
-        run: npm install -g @salesforce/cli
-
       - name: Find pending deployment artifacts
         id: find_artifacts
         env:
@@ -42,6 +39,22 @@ jobs:
             echo "$ARTIFACTS" | jq -s '.' > artifacts.json
             echo "has_pending=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Install Salesforce CLI
+        if: steps.find_artifacts.outputs.has_pending == 'true'
+        run: npm install -g @salesforce/cli
+
+      - name: Checkout slack-notifications
+        if: steps.find_artifacts.outputs.has_pending == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: guidion-digital/slack-notifications
+          ref: v2
+          path: slack-notifications
+
+      - name: Install slack_sdk
+        if: steps.find_artifacts.outputs.has_pending == 'true'
+        run: pip install slack_sdk
 
       - name: Process pending deployments
         if: steps.find_artifacts.outputs.has_pending == 'true'
@@ -69,6 +82,22 @@ jobs:
           CACHE_FLUSH_API_KEY: ${{ secrets.CACHE_FLUSH_API_KEY }}
           USER_ID_FOR_CACHE_FLUSH: ${{ vars.USER_ID_FOR_CACHE_FLUSH }}
         run: |
+          # Notification helper — calls the same notify.py used by the slack-notifications action.
+          # Uses export so that multi-line strings (e.g. error details) are passed safely.
+          send_notification() {
+            export MESSAGE_TYPE="deployment"
+            export DEPLOYMENT_STATUS="$1"
+            export SLACK_CHANNEL
+            export ENVIRONMENT
+            export BRANCH
+            export COMMIT_URL
+            export WORKFLOW_USER="$ACTOR"
+            export WORKFLOW_URL="$GITHUB_RUN_URL"
+            export SF_DEPLOY_URL="$SF_DEPLOY_STATUS_URL"
+            export ERROR_DETAILS="${2:-}"
+            python3 slack-notifications/notify.py
+          }
+
           # Process each artifact (using while read to handle JSON safely)
           cat artifacts.json | jq -c '.[]' | while read -r ARTIFACT_ROW; do
             ARTIFACT_ID=$(echo "$ARTIFACT_ROW" | jq -r '.id')
@@ -100,25 +129,15 @@ jobs:
             STARTED_AT=$(echo "$DEPLOYMENT_INFO" | jq -r '.started_at')
             SOURCE_REPO=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_repository // empty')
             SOURCE_SERVER=$(echo "$DEPLOYMENT_INFO" | jq -r '.github_server_url // empty')
-            PR_NUMBER=$(echo "$DEPLOYMENT_INFO" | jq -r '.pr_number // empty')
             
             # Build commit URL using source repo (fix for cross-repo deployments)
             if [ -n "$SOURCE_REPO" ] && [ -n "$SOURCE_SERVER" ]; then
               COMMIT_URL="${SOURCE_SERVER}/${SOURCE_REPO}/commit/$COMMIT_SHA"
-              PR_URL="${SOURCE_SERVER}/${SOURCE_REPO}/pull/${PR_NUMBER}"
             else
               COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/$COMMIT_SHA"
-              PR_URL="${{ github.server_url }}/${{ github.repository }}/pull/${PR_NUMBER}"
             fi
             
-            # Build PR field for Slack (only if PR number is available)
-            if [ -n "$PR_NUMBER" ]; then
-              PR_FIELD="{\"type\": \"mrkdwn\", \"text\": \"*PR:*\n<$PR_URL|#$PR_NUMBER>\"},"
-            else
-              PR_FIELD=""
-            fi
-            
-            # Build direct link to this specific deployment in Salesforce
+            # Build SF deploy status URL
             SF_BASE_URL_VAR="SF_BASE_URL_${ENV_UPPER}"
             SF_BASE_URL="${!SF_BASE_URL_VAR}"
             if [ -n "$SF_BASE_URL" ]; then
@@ -134,41 +153,7 @@ jobs:
             
             if [ "$AGE_HOURS" -gt 6 ]; then
               echo "WARNING: Deployment is $AGE_HOURS hours old. Marking as stale."
-              
-              # Build SF button for stale notification
-              STALE_SF_BUTTON=""
-              if [ -n "$SF_DEPLOY_STATUS_URL" ]; then
-                STALE_SF_BUTTON=",{\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"🔍 Check in Salesforce\"}, \"url\": \"$SF_DEPLOY_STATUS_URL\"}"
-              fi
-              
-              # Send stale deployment notification
-              curl -s -X POST https://slack.com/api/chat.postMessage \
-                -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $SLACK_TOKEN" \
-                -d "{
-                  \"channel\": \"$SLACK_CHANNEL\",
-                  \"text\": \"Stale deployment detected in $ENVIRONMENT\",
-                  \"blocks\": [
-                    {
-                      \"type\": \"section\",
-                      \"text\": {
-                        \"type\": \"mrkdwn\",
-                        \"text\": \"⚠️ *Stale Deployment Detected*\n\nA deployment to *$ENVIRONMENT* started $AGE_HOURS hours ago and never completed.\nJob ID: \`$JOB_ID\`\n\nThis artifact will be removed. Please check Salesforce Deployment Status or re-run the workflow if needed.\"
-                      }
-                    },
-                    {
-                      \"type\": \"actions\",
-                      \"elements\": [
-                        {
-                          \"type\": \"button\",
-                          \"text\": {\"type\": \"plain_text\", \"text\": \"📋 View Workflow\"},
-                          \"url\": \"$GITHUB_RUN_URL\"
-                        }
-                        $STALE_SF_BUTTON
-                      ]
-                    }
-                  ]
-                }"
+              send_notification "stale" "Deployment started $AGE_HOURS hours ago and never completed. Job ID: $JOB_ID. This artifact will be removed." || echo "WARNING: Slack notification failed (non-critical)"
               
               # Delete the stale artifact
               gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}" || echo "Failed to delete artifact"
@@ -215,60 +200,10 @@ jobs:
             STATUS=$(echo "$DEPLOY_STATUS" | jq -r '.result.status // .status // "Unknown"')
             echo "Deployment status: $STATUS"
             
-            # Build SF deployment status button (used in both success and failure)
-            SF_BUTTON=""
-            if [ -n "$SF_DEPLOY_STATUS_URL" ]; then
-              SF_BUTTON=",{\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"🔍 SF Deploy Status\"}, \"url\": \"$SF_DEPLOY_STATUS_URL\"}"
-            fi
-            
             # Handle completed deployments
             if [[ "$STATUS" == "Succeeded" ]]; then
               echo "Deployment SUCCEEDED!"
-              
-              # Send Slack notification with rich formatting
-              curl -s -X POST https://slack.com/api/chat.postMessage \
-                -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $SLACK_TOKEN" \
-                -d "{
-                  \"channel\": \"$SLACK_CHANNEL\",
-                  \"text\": \"Salesforce deployment succeeded in $ENVIRONMENT\",
-                  \"blocks\": [
-                    {
-                      \"type\": \"section\",
-                      \"text\": {
-                        \"type\": \"mrkdwn\",
-                        \"text\": \"✅ *Salesforce Deployment Succeeded*\"
-                      }
-                    },
-                    {
-                      \"type\": \"section\",
-                      \"fields\": [
-                        {\"type\": \"mrkdwn\", \"text\": \"*Environment:*\n$ENVIRONMENT\"},
-                        {\"type\": \"mrkdwn\", \"text\": \"*Branch:*\n$BRANCH\"},
-                        $PR_FIELD
-                        {\"type\": \"mrkdwn\", \"text\": \"*Commit:*\n<$COMMIT_URL|\`${COMMIT_SHA:0:7}\`>\"},
-                        {\"type\": \"mrkdwn\", \"text\": \"*Deployed by:*\n$ACTOR\"},
-                        {\"type\": \"mrkdwn\", \"text\": \"*Job ID:*\n\`$JOB_ID\`\"}
-                      ]
-                    },
-                    {
-                      \"type\": \"actions\",
-                      \"elements\": [
-                        {
-                          \"type\": \"button\",
-                          \"text\": {\"type\": \"plain_text\", \"text\": \"📋 View Workflow\"},
-                          \"url\": \"$GITHUB_RUN_URL\"
-                        },
-                        {
-                          \"type\": \"button\",
-                          \"text\": {\"type\": \"plain_text\", \"text\": \"🔗 View Commit\"},
-                          \"url\": \"$COMMIT_URL\"
-                        }
-                        $SF_BUTTON
-                      ]
-                    }
-                  ]
-                }"
+              send_notification "succeeded" || echo "WARNING: Slack notification failed (non-critical)"
               
               # Flush cache (only for acc and prod)
               if [[ "$ENVIRONMENT" == "acc" ]]; then
@@ -300,7 +235,6 @@ jobs:
               echo "Deployment FAILED!"
               
               # Get comprehensive error details from the deploy report
-              # Try multiple fields where Salesforce might report errors
               COMPONENT_FAILURES=$(echo "$DEPLOY_STATUS" | jq -r '
                 (.result.details.componentFailures // []) |
                 if type == "array" then .[] else . end |
@@ -334,71 +268,10 @@ jobs:
                 ERROR_MESSAGE="No specific error details available. Check Salesforce deployment status for more info."
               fi
               
-              # Escape for JSON (limit to 1500 chars to fit Slack limits)
-              ERROR_MESSAGE=$(echo -e "$ERROR_MESSAGE" | head -c 1500 | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+              # Limit length (Python/slack_sdk handles JSON encoding)
+              ERROR_MESSAGE=$(echo -e "$ERROR_MESSAGE" | head -c 1500)
               
-              # Send Slack notification with retry instructions
-              curl -s -X POST https://slack.com/api/chat.postMessage \
-                -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $SLACK_TOKEN" \
-                -d "{
-                  \"channel\": \"$SLACK_CHANNEL\",
-                  \"text\": \"Salesforce deployment failed in $ENVIRONMENT\",
-                  \"blocks\": [
-                    {
-                      \"type\": \"section\",
-                      \"text\": {
-                        \"type\": \"mrkdwn\",
-                        \"text\": \"❌ *Salesforce Deployment Failed*\"
-                      }
-                    },
-                    {
-                      \"type\": \"section\",
-                      \"fields\": [
-                        {\"type\": \"mrkdwn\", \"text\": \"*Environment:*\n$ENVIRONMENT\"},
-                        {\"type\": \"mrkdwn\", \"text\": \"*Branch:*\n$BRANCH\"},
-                        $PR_FIELD
-                        {\"type\": \"mrkdwn\", \"text\": \"*Commit:*\n<$COMMIT_URL|\`${COMMIT_SHA:0:7}\`>\"},
-                        {\"type\": \"mrkdwn\", \"text\": \"*Deployed by:*\n$ACTOR\"},
-                        {\"type\": \"mrkdwn\", \"text\": \"*Job ID:*\n\`$JOB_ID\`\"}
-                      ]
-                    },
-                    {
-                      \"type\": \"section\",
-                      \"text\": {
-                        \"type\": \"mrkdwn\",
-                        \"text\": \"*Error Details:*\n\`\`\`$ERROR_MESSAGE\`\`\`\"
-                      }
-                    },
-                    {
-                      \"type\": \"divider\"
-                    },
-                    {
-                      \"type\": \"section\",
-                      \"text\": {
-                        \"type\": \"mrkdwn\",
-                        \"text\": \"*🔄 To retry:* Click 'View Workflow' below, then click *Re-run jobs* → *Re-run failed jobs*\"
-                      }
-                    },
-                    {
-                      \"type\": \"actions\",
-                      \"elements\": [
-                        {
-                          \"type\": \"button\",
-                          \"text\": {\"type\": \"plain_text\", \"text\": \"📋 View Workflow (Re-run here)\"},
-                          \"url\": \"$GITHUB_RUN_URL\",
-                          \"style\": \"primary\"
-                        },
-                        {
-                          \"type\": \"button\",
-                          \"text\": {\"type\": \"plain_text\", \"text\": \"🔗 View Commit\"},
-                          \"url\": \"$COMMIT_URL\"
-                        }
-                        $SF_BUTTON
-                      ]
-                    }
-                  ]
-                }"
+              send_notification "failed" "$ERROR_MESSAGE" || echo "WARNING: Slack notification failed (non-critical)"
               
               # Delete the artifact (deployment is done, even if failed)
               echo "Deleting artifact..."
