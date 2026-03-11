@@ -152,6 +152,11 @@ jobs:
           
           # Extract Job ID
           JOB_ID=$(echo "$DEPLOY_OUTPUT" | jq -r '.result.id')
+          if [ -z "$JOB_ID" ] || [ "$JOB_ID" = "null" ]; then
+            echo "::error::Deploy command did not return a valid job ID"
+            echo "$DEPLOY_OUTPUT"
+            exit 1
+          fi
           echo "Deployment started with Job ID: $JOB_ID"
           echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
           
@@ -173,10 +178,9 @@ jobs:
             --arg github_run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --arg github_repository "${{ github.repository }}" \
             --arg github_server_url "${{ github.server_url }}" \
-            --arg sf_login_url "${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}" \
             --arg pr_number "$PR_NUMBER" \
             --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{job_id: $job_id, environment: $environment, target_org: $target_org, test_level: $test_level, source_dir: $source_dir, commit_sha: $commit_sha, branch: $branch, actor: $actor, slack_channel: $slack_channel, github_run_id: $github_run_id, github_run_url: $github_run_url, github_repository: $github_repository, github_server_url: $github_server_url, sf_login_url: $sf_login_url, pr_number: $pr_number, started_at: $started_at}' \
+            '{job_id: $job_id, environment: $environment, target_org: $target_org, test_level: $test_level, source_dir: $source_dir, commit_sha: $commit_sha, branch: $branch, actor: $actor, slack_channel: $slack_channel, github_run_id: $github_run_id, github_run_url: $github_run_url, github_repository: $github_repository, github_server_url: $github_server_url, pr_number: $pr_number, started_at: $started_at}' \
             > deployment-info.json
           
           echo "Deployment info saved to deployment-info.json"
@@ -281,6 +285,10 @@ jobs:
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $SLACK_TOKEN" \
             -d "$PAYLOAD")
+
+          if [ "$(printf '%s' "$RESPONSE" | jq -r '.ok')" != "true" ]; then
+            echo "::warning::Slack notification failed: $(printf '%s' "$RESPONSE" | jq -r '.error // "unknown"')"
+          fi
 
           THREAD_TS=$(printf '%s' "$RESPONSE" | jq -r '.ts // empty')
           if [ -n "$THREAD_TS" ]; then

@@ -13,7 +13,7 @@ on:
 
 jobs:
   deploy:
-    uses: guidion-digital/sf-workflows/.github/workflows/sf_deployer_async.yaml@main
+    uses: guidion-digital/sf-workflows/.github/workflows/sf_deployer_async.yaml@v1
     with:
       environment_name: dev
       source_dir: force-app
