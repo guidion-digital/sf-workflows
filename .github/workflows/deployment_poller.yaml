@@ -89,8 +89,23 @@ jobs:
       CACHE_FLUSH_API_KEY: ${{ secrets.CACHE_FLUSH_API_KEY }}
       USER_ID_FOR_CACHE_FLUSH: ${{ vars.USER_ID_FOR_CACHE_FLUSH }}
     steps:
+      - name: Cache Salesforce CLI
+        id: cache-sf
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/sf-cli
+          key: sf-cli-stable-linux-x64
+
       - name: Install Salesforce CLI
-        run: npm install -g @salesforce/cli
+        if: steps.cache-sf.outputs.cache-hit != 'true'
+        run: |
+          wget -q https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable/sf-linux-x64.tar.xz
+          mkdir -p /usr/local/sf-cli
+          tar xJf sf-linux-x64.tar.xz -C /usr/local/sf-cli --strip-components=1
+          rm sf-linux-x64.tar.xz
+
+      - name: Add Salesforce CLI to PATH
+        run: echo "/usr/local/sf-cli/bin" >> "$GITHUB_PATH"
 
       - name: Download artifact
         id: download
