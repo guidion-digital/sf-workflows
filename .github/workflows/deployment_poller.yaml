@@ -453,7 +453,7 @@ jobs:
                 {type: "divider"},
                 {
                   type: "section",
-                  text: {type: "mrkdwn", text: "*🔄 To retry:* Click 'View Workflow' below, then click *Re-run jobs* → *Re-run failed jobs*"}
+                  text: {type: "mrkdwn", text: "*🔄 To retry:* Click \u0027View Workflow\u0027 below, then click *Re-run jobs* → *Re-run failed jobs*"}
                 },
                 {
                   type: "actions",

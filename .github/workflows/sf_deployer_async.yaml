@@ -119,19 +119,18 @@ jobs:
           TEST_CLASSES="${{ steps.get_tests.outputs.test_classes }}"
           
           # Build deploy command arguments
+          EXTRA_ARGS=()
           if [[ "$CONFIGURED_TEST_LEVEL" == "RunSpecifiedTests" && -n "$TEST_CLASSES" ]]; then
             TEST_LEVEL="RunSpecifiedTests"
-            EXTRA_ARGS="--tests $TEST_CLASSES"
+            read -ra EXTRA_ARGS <<< "--tests $TEST_CLASSES"
             echo "Deploying ${{ inputs.source_dir }} with RunSpecifiedTests"
             echo "Running tests: $TEST_CLASSES"
           elif [[ "$CONFIGURED_TEST_LEVEL" == "NoTestRun" ]]; then
             TEST_LEVEL="NoTestRun"
-            EXTRA_ARGS=""
             echo "Deploying ${{ inputs.source_dir }} with NoTestRun"
           else
             # Default to RunLocalTests (also fallback when RunSpecifiedTests but no test classes found)
             TEST_LEVEL="RunLocalTests"
-            EXTRA_ARGS=""
             if [[ "$CONFIGURED_TEST_LEVEL" == "RunSpecifiedTests" ]]; then
               echo "No test classes found in test suite, falling back to RunLocalTests"
             else
@@ -143,7 +142,7 @@ jobs:
           DEPLOY_OUTPUT=$(sf project deploy start \
             --source-dir "${{ inputs.source_dir }}" \
             --test-level "$TEST_LEVEL" \
-            $EXTRA_ARGS \
+            "${EXTRA_ARGS[@]}" \
             --target-org "${{ inputs.sf_target_org }}" \
             --ignore-conflicts \
             --async \
