@@ -182,14 +182,8 @@ jobs:
           echo "Deployment info saved to deployment-info.json"
           cat deployment-info.json
 
-      - name: Upload deployment info artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pending-deployment-${{ github.run_id }}
-          path: deployment-info.json
-          retention-days: 1
-
       - name: Notify deployment started
+        id: notify
         continue-on-error: true
         env:
           SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
@@ -275,10 +269,30 @@ jobs:
               ]
             }')
 
-          curl -s -X POST https://slack.com/api/chat.postMessage \
+          RESPONSE=$(curl -s -X POST https://slack.com/api/chat.postMessage \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $SLACK_TOKEN" \
-            -d "$PAYLOAD"
+            -d "$PAYLOAD")
+
+          THREAD_TS=$(echo "$RESPONSE" | jq -r '.ts // empty')
+          if [ -n "$THREAD_TS" ]; then
+            echo "Slack thread_ts: $THREAD_TS"
+            echo "thread_ts=$THREAD_TS" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Add Slack thread context to deployment info
+        if: steps.notify.outputs.thread_ts != ''
+        run: |
+          jq --arg ts "${{ steps.notify.outputs.thread_ts }}" \
+            '. + {slack_thread_ts: $ts}' deployment-info.json > tmp.json
+          mv tmp.json deployment-info.json
+
+      - name: Upload deployment info artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pending-deployment-${{ github.run_id }}
+          path: deployment-info.json
+          retention-days: 1
 
   # NOTE: The deployment_poller.yaml handles completion notifications
   # after the async deployment succeeds or fails

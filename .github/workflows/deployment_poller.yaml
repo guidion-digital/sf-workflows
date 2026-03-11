@@ -164,6 +164,7 @@ jobs:
             echo "DEPLOY_SOURCE_REPO=$(jq -r '.github_repository // empty' "$INFO")"
             echo "DEPLOY_SOURCE_SERVER=$(jq -r '.github_server_url // empty' "$INFO")"
             echo "DEPLOY_PR_NUMBER=$(jq -r '.pr_number // empty' "$INFO")"
+            echo "DEPLOY_SLACK_THREAD_TS=$(jq -r '.slack_thread_ts // empty' "$INFO")"
           } >> "$GITHUB_ENV"
 
       - name: Resolve URLs
@@ -220,12 +221,13 @@ jobs:
           PAYLOAD=$(jq -n \
             --arg channel "$DEPLOY_SLACK_CHANNEL" \
             --arg fallback "Stale deployment detected in $DEPLOY_ENVIRONMENT" \
+            --arg thread_ts "${DEPLOY_SLACK_THREAD_TS:-}" \
             --arg env "$DEPLOY_ENVIRONMENT" \
             --arg age "${{ steps.staleness.outputs.age_hours }}" \
             --arg job_id "$DEPLOY_JOB_ID" \
             --arg run_url "$DEPLOY_GITHUB_RUN_URL" \
             --argjson sf_button "$SF_BUTTON" \
-            '{
+            '({
               channel: $channel,
               text: $fallback,
               blocks: [
@@ -244,7 +246,7 @@ jobs:
                   )
                 }
               ]
-            }')
+            } + if $thread_ts != "" then {thread_ts: $thread_ts} else {} end)')
 
           curl -s -X POST https://slack.com/api/chat.postMessage \
             -H "Content-Type: application/json" \
@@ -316,6 +318,7 @@ jobs:
           PAYLOAD=$(jq -n \
             --arg channel "$DEPLOY_SLACK_CHANNEL" \
             --arg fallback "Salesforce deployment succeeded in $DEPLOY_ENVIRONMENT" \
+            --arg thread_ts "${DEPLOY_SLACK_THREAD_TS:-}" \
             --arg env "$DEPLOY_ENVIRONMENT" \
             --arg branch "$DEPLOY_BRANCH" \
             --arg commit_url "$COMMIT_URL" \
@@ -325,7 +328,7 @@ jobs:
             --arg run_url "$DEPLOY_GITHUB_RUN_URL" \
             --argjson pr_field "$PR_FIELD" \
             --argjson sf_button "$SF_BUTTON" \
-            '{
+            '({
               channel: $channel,
               text: $fallback,
               blocks: [
@@ -359,7 +362,7 @@ jobs:
                   )
                 }
               ]
-            }')
+            } + if $thread_ts != "" then {thread_ts: $thread_ts} else {} end)')
 
           curl -s -X POST https://slack.com/api/chat.postMessage \
             -H "Content-Type: application/json" \
@@ -436,6 +439,7 @@ jobs:
           PAYLOAD=$(jq -n \
             --arg channel "$DEPLOY_SLACK_CHANNEL" \
             --arg fallback "Salesforce deployment failed in $DEPLOY_ENVIRONMENT" \
+            --arg thread_ts "${DEPLOY_SLACK_THREAD_TS:-}" \
             --arg env "$DEPLOY_ENVIRONMENT" \
             --arg branch "$DEPLOY_BRANCH" \
             --arg commit_url "$COMMIT_URL" \
@@ -446,7 +450,7 @@ jobs:
             --arg error_msg "$ERROR_MESSAGE" \
             --argjson pr_field "$PR_FIELD" \
             --argjson sf_button "$SF_BUTTON" \
-            '{
+            '({
               channel: $channel,
               text: $fallback,
               blocks: [
@@ -489,7 +493,7 @@ jobs:
                   )
                 }
               ]
-            }')
+            } + if $thread_ts != "" then {thread_ts: $thread_ts} else {} end)')
 
           curl -s -X POST https://slack.com/api/chat.postMessage \
             -H "Content-Type: application/json" \
