@@ -1,0 +1,26 @@
+name: "[ASYNC TEST] Deploy to dev environment"
+
+# Test workflow for async deployments
+# Manually trigger this to test the async deployment + poller flow
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+        required: false
+        default: 'main'
+
+jobs:
+  deploy:
+    uses: guidion-digital/sf-workflows/.github/workflows/sf_deployer_async.yaml@main
+    with:
+      environment_name: dev
+      source_dir: force-app
+      branch: ${{ inputs.branch }}
+      sf_login_url: ${{ vars.SF_LOGIN_URL_DEV }}
+      sf_username: ${{ vars.SF_USERNAME_DEV }}
+      sf_client_id: ${{ vars.SF_CLIENT_ID_DEV }}
+    secrets:
+      SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_DEV }}
+      SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
