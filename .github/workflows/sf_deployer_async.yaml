@@ -210,7 +210,13 @@ jobs:
             prod) SF_BASE_URL="$SF_BASE_URL_PROD" ;;
             *)    SF_BASE_URL="" ;;
           esac
-          SF_DEPLOY_URL="${SF_BASE_URL}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${JOB_ID}"
+
+          SF_BUTTON="null"
+          if [ -n "$SF_BASE_URL" ]; then
+            SF_DEPLOY_URL="${SF_BASE_URL}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${JOB_ID}"
+            SF_BUTTON=$(jq -n --arg url "$SF_DEPLOY_URL" \
+              '{type: "button", text: {type: "plain_text", text: "🔍 Track in Salesforce"}, url: $url, style: "primary"}')
+          fi
 
           PR_FIELD="null"
           if [ -n "$PR_NUMBER" ]; then
@@ -229,8 +235,8 @@ jobs:
             --arg actor "$ACTOR" \
             --arg job_id "$JOB_ID" \
             --arg run_url "$GITHUB_RUN_URL" \
-            --arg sf_url "$SF_DEPLOY_URL" \
             --argjson pr_field "$PR_FIELD" \
+            --argjson sf_button "$SF_BUTTON" \
             '{
               channel: $channel,
               text: $fallback,
@@ -260,11 +266,13 @@ jobs:
                 },
                 {
                   type: "actions",
-                  elements: [
-                    {type: "button", text: {type: "plain_text", text: "📋 View Workflow"}, url: $run_url},
-                    {type: "button", text: {type: "plain_text", text: "🔗 View Commit"}, url: $commit_url},
-                    {type: "button", text: {type: "plain_text", text: "🔍 Track in Salesforce"}, url: $sf_url, style: "primary"}
-                  ]
+                  elements: (
+                    [
+                      {type: "button", text: {type: "plain_text", text: "📋 View Workflow"}, url: $run_url},
+                      {type: "button", text: {type: "plain_text", text: "🔗 View Commit"}, url: $commit_url}
+                    ]
+                    + (if $sf_button != null then [$sf_button] else [] end)
+                  )
                 }
               ]
             }')
@@ -274,7 +282,7 @@ jobs:
             -H "Authorization: Bearer $SLACK_TOKEN" \
             -d "$PAYLOAD")
 
-          THREAD_TS=$(echo "$RESPONSE" | jq -r '.ts // empty')
+          THREAD_TS=$(printf '%s' "$RESPONSE" | jq -r '.ts // empty')
           if [ -n "$THREAD_TS" ]; then
             echo "Slack thread_ts: $THREAD_TS"
             echo "thread_ts=$THREAD_TS" >> "$GITHUB_OUTPUT"
