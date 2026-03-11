@@ -93,19 +93,19 @@ jobs:
         id: cache-sf
         uses: actions/cache@v4
         with:
-          path: /usr/local/sf-cli
+          path: ${{ runner.tool_cache }}/sf-cli
           key: sf-cli-stable-linux-x64
 
       - name: Install Salesforce CLI
         if: steps.cache-sf.outputs.cache-hit != 'true'
         run: |
           wget -q https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable/sf-linux-x64.tar.xz
-          mkdir -p /usr/local/sf-cli
-          tar xJf sf-linux-x64.tar.xz -C /usr/local/sf-cli --strip-components=1
+          mkdir -p "${{ runner.tool_cache }}/sf-cli"
+          tar xJf sf-linux-x64.tar.xz -C "${{ runner.tool_cache }}/sf-cli" --strip-components=1
           rm sf-linux-x64.tar.xz
 
       - name: Add Salesforce CLI to PATH
-        run: echo "/usr/local/sf-cli/bin" >> "$GITHUB_PATH"
+        run: echo "${{ runner.tool_cache }}/sf-cli/bin" >> "$GITHUB_PATH"
 
       - name: Download artifact
         id: download
