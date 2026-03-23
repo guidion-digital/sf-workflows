@@ -258,26 +258,23 @@ jobs:
 
       - name: Flush cache
         if: steps.check_status.outputs.status == 'Succeeded'
+        env:
+          FLUSH_CACHE_URL_ACC: ${{ vars.FLUSH_CACHE_URL_ACC }}
+          FLUSH_CACHE_URL_PROD: ${{ vars.FLUSH_CACHE_URL_PROD }}
         run: |
-          case "$DEPLOY_ENVIRONMENT" in
-            acc)
-              echo "Flushing cache for acc environment..."
-              curl -s -X POST https://homeapp.web.acc.guidion.io/api/v1/cache-flush \
-                -H "Content-Type: application/json" \
-                -H "x-api-key: $CACHE_FLUSH_API_KEY" \
-                -d "{\"userId\": \"$USER_ID_FOR_CACHE_FLUSH\"}" || echo "::warning::Cache flush failed (non-critical)"
-              ;;
-            prod)
-              echo "Flushing cache for prod environment..."
-              curl -s -X POST https://homeapp.guidion.io/api/v1/cache-flush \
-                -H "Content-Type: application/json" \
-                -H "x-api-key: $CACHE_FLUSH_API_KEY" \
-                -d "{\"userId\": \"$USER_ID_FOR_CACHE_FLUSH\"}" || echo "::warning::Cache flush failed (non-critical)"
-              ;;
-            *)
-              echo "No cache flush configured for $DEPLOY_ENVIRONMENT"
-              ;;
-          esac
+          FLUSH_URL_VAR="FLUSH_CACHE_URL_${DEPLOY_ENV_UPPER}"
+          FLUSH_URL="${!FLUSH_URL_VAR}"
+
+          if [ -z "$FLUSH_URL" ]; then
+            echo "No cache flush URL configured for $DEPLOY_ENVIRONMENT"
+            exit 0
+          fi
+
+          echo "Flushing cache for $DEPLOY_ENVIRONMENT environment..."
+          curl -s -X POST "$FLUSH_URL" \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $CACHE_FLUSH_API_KEY" \
+            -d "{\"userId\": \"$USER_ID_FOR_CACHE_FLUSH\"}" || echo "::warning::Cache flush failed (non-critical)"
 
       - name: Send Slack notification
         continue-on-error: true
