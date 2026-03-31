@@ -136,7 +136,7 @@ jobs:
           jq '.' "$INFO"
 
           MISSING=""
-          for FIELD in job_id environment target_org slack_channel commit_sha branch actor github_run_url started_at; do
+          for FIELD in job_id environment target_org slack_channel commit_sha branch actor github_run_url; do
             VALUE=$(jq -r --arg f "$FIELD" '.[$f] // empty' "$INFO")
             [ -z "$VALUE" ] && MISSING="$MISSING $FIELD"
           done
@@ -160,7 +160,6 @@ jobs:
             echo "DEPLOY_BRANCH=$(jq -r '.branch' "$INFO")"
             echo "DEPLOY_ACTOR=$(jq -r '.actor' "$INFO")"
             echo "DEPLOY_GITHUB_RUN_URL=$(jq -r '.github_run_url' "$INFO")"
-            echo "DEPLOY_STARTED_AT=$(jq -r '.started_at' "$INFO")"
             echo "DEPLOY_SOURCE_REPO=$(jq -r '.github_repository // empty' "$INFO")"
             echo "DEPLOY_SOURCE_SERVER=$(jq -r '.github_server_url // empty' "$INFO")"
             echo "DEPLOY_PR_NUMBER=$(jq -r '.pr_number // empty' "$INFO")"
@@ -184,33 +183,8 @@ jobs:
             echo "SF_DEPLOY_STATUS_URL=${SF_BASE_URL}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${DEPLOY_JOB_ID}" >> "$GITHUB_ENV"
           fi
 
-      - name: Check staleness
-        id: staleness
-        if: steps.parse.outputs.valid == 'true'
-        run: |
-          if ! STARTED_EPOCH=$(date -d "$DEPLOY_STARTED_AT" +%s 2>/dev/null); then
-            echo "::error::Failed to parse timestamp: $DEPLOY_STARTED_AT"
-            echo "is_stale=true" >> "$GITHUB_OUTPUT"
-            echo "age_hours=unknown" >> "$GITHUB_OUTPUT"
-            echo "DELETE_ARTIFACT=true" >> "$GITHUB_ENV"
-            exit 0
-          fi
-
-          NOW_EPOCH=$(date +%s)
-          AGE_HOURS=$(( (NOW_EPOCH - STARTED_EPOCH) / 3600 ))
-          echo "age_hours=$AGE_HOURS" >> "$GITHUB_OUTPUT"
-
-          if [ "$AGE_HOURS" -gt 6 ]; then
-            echo "::warning::Deployment is ${AGE_HOURS}h old — marking as stale"
-            echo "is_stale=true" >> "$GITHUB_OUTPUT"
-            echo "DELETE_ARTIFACT=true" >> "$GITHUB_ENV"
-          else
-            echo "Deployment age: ${AGE_HOURS}h (active)"
-            echo "is_stale=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Authenticate to Salesforce
-        if: steps.parse.outputs.valid == 'true' && steps.staleness.outputs.is_stale != 'true'
+        if: steps.parse.outputs.valid == 'true'
         run: |
           SF_LOGIN_URL_VAR="SF_LOGIN_URL_${DEPLOY_ENV_UPPER}"
           SF_USERNAME_VAR="SF_USERNAME_${DEPLOY_ENV_UPPER}"
@@ -238,7 +212,7 @@ jobs:
 
       - name: Check deployment status
         id: check_status
-        if: steps.parse.outputs.valid == 'true' && steps.staleness.outputs.is_stale != 'true'
+        if: steps.parse.outputs.valid == 'true'
         run: |
           echo "Checking deployment status for Job ID: $DEPLOY_JOB_ID"
           DEPLOY_REPORT=$(sf project deploy report \
@@ -279,17 +253,11 @@ jobs:
       - name: Send Slack notification
         continue-on-error: true
         if: |
-          steps.staleness.outputs.is_stale == 'true' ||
           steps.check_status.outputs.status == 'Succeeded' ||
           steps.check_status.outputs.status == 'Failed' ||
           steps.check_status.outputs.status == 'Canceled'
         run: |
-          # Determine notification type
-          if [ "${{ steps.staleness.outputs.is_stale }}" = "true" ]; then
-            NOTIFY_TYPE="stale"
-          else
-            NOTIFY_TYPE="${{ steps.check_status.outputs.status }}"
-          fi
+          NOTIFY_TYPE="${{ steps.check_status.outputs.status }}"
           echo "Sending $NOTIFY_TYPE notification..."
 
           # -- Common elements (built once) --
@@ -311,13 +279,8 @@ jobs:
           ACTOR_LABEL="Deployed by"
           WF_BTN_TEXT="📋 View Workflow"
           WF_BTN_STYLE=""
-          SHOW_COMMIT_BTN="true"
 
           case "$NOTIFY_TYPE" in
-            stale)
-              FALLBACK="Stale deployment detected in $DEPLOY_ENVIRONMENT"
-              SHOW_COMMIT_BTN="false"
-              ;;
             Succeeded)
               FALLBACK="Salesforce deployment succeeded in $DEPLOY_ENVIRONMENT"
               ;;
@@ -339,7 +302,6 @@ jobs:
             --arg commit_url "$COMMIT_URL" \
             --arg wf_text "$WF_BTN_TEXT" \
             --arg wf_style "$WF_BTN_STYLE" \
-            --arg show_commit "$SHOW_COMMIT_BTN" \
             --argjson sf_button "$SF_BUTTON" \
             '{
               type: "actions",
@@ -348,109 +310,91 @@ jobs:
                   {type: "button", text: {type: "plain_text", text: $wf_text}, url: $run_url}
                   + if $wf_style != "" then {style: $wf_style} else {} end
                 )]
-                + (if $show_commit == "true" then [{type: "button", text: {type: "plain_text", text: "🔗 View Commit"}, url: $commit_url}] else [] end)
+                + [{type: "button", text: {type: "plain_text", text: "🔗 View Commit"}, url: $commit_url}]
                 + (if $sf_button != null then [$sf_button] else [] end)
               )
             }')
 
-          # -- Assemble blocks per type --
+          # -- Assemble blocks --
 
-          if [ "$NOTIFY_TYPE" = "stale" ]; then
-            BLOCKS=$(jq -n \
-              --arg env "$DEPLOY_ENVIRONMENT" \
-              --arg age "${{ steps.staleness.outputs.age_hours }}" \
-              --arg job_id "$DEPLOY_JOB_ID" \
-              --argjson buttons "$BUTTONS_BLOCK" \
-              '[
-                {
-                  type: "section",
-                  text: {
-                    type: "mrkdwn",
-                    text: ("⚠️ *Stale Deployment Detected*\n\nA deployment to *" + $env + "* started " + $age + " hours ago and never completed.\nJob ID: `" + $job_id + "`\n\nThis artifact will be removed. Please check Salesforce or re-run the workflow if needed.")
-                  }
-                },
-                $buttons
-              ]')
-          else
-            case "$NOTIFY_TYPE" in
-              Succeeded) TITLE="✅ *Salesforce Deployment Succeeded*" ;;
-              Failed)    TITLE="❌ *Salesforce Deployment Failed*" ;;
-              Canceled)  TITLE="🚫 *Salesforce Deployment Canceled*" ;;
-            esac
+          case "$NOTIFY_TYPE" in
+            Succeeded) TITLE="✅ *Salesforce Deployment Succeeded*" ;;
+            Failed)    TITLE="❌ *Salesforce Deployment Failed*" ;;
+            Canceled)  TITLE="🚫 *Salesforce Deployment Canceled*" ;;
+          esac
 
-            HEADER=$(jq -n --arg title "$TITLE" \
-              '{type: "section", text: {type: "mrkdwn", text: $title}}')
+          HEADER=$(jq -n --arg title "$TITLE" \
+            '{type: "section", text: {type: "mrkdwn", text: $title}}')
 
-            FIELDS_BLOCK=$(jq -n \
-              --arg env "$DEPLOY_ENVIRONMENT" \
-              --arg branch "$DEPLOY_BRANCH" \
-              --argjson pr_field "$PR_FIELD" \
-              --arg commit_url "$COMMIT_URL" \
-              --arg short_sha "${DEPLOY_COMMIT_SHA:0:7}" \
-              --arg actor "$DEPLOY_ACTOR" \
-              --arg actor_label "$ACTOR_LABEL" \
-              --arg job_id "$DEPLOY_JOB_ID" \
-              '{
-                type: "section",
-                fields: (
-                  [
-                    {type: "mrkdwn", text: ("*Environment:*\n" + $env)},
-                    {type: "mrkdwn", text: ("*Branch:*\n" + $branch)}
-                  ]
-                  + (if $pr_field != null then [$pr_field] else [] end)
-                  + [
-                    {type: "mrkdwn", text: ("*Commit:*\n<" + $commit_url + "|`" + $short_sha + "`>")},
-                    {type: "mrkdwn", text: ("*" + $actor_label + ":*\n" + $actor)},
-                    {type: "mrkdwn", text: ("*Job ID:*\n`" + $job_id + "`")}
-                  ]
-                )
-              }')
+          FIELDS_BLOCK=$(jq -n \
+            --arg env "$DEPLOY_ENVIRONMENT" \
+            --arg branch "$DEPLOY_BRANCH" \
+            --argjson pr_field "$PR_FIELD" \
+            --arg commit_url "$COMMIT_URL" \
+            --arg short_sha "${DEPLOY_COMMIT_SHA:0:7}" \
+            --arg actor "$DEPLOY_ACTOR" \
+            --arg actor_label "$ACTOR_LABEL" \
+            --arg job_id "$DEPLOY_JOB_ID" \
+            '{
+              type: "section",
+              fields: (
+                [
+                  {type: "mrkdwn", text: ("*Environment:*\n" + $env)},
+                  {type: "mrkdwn", text: ("*Branch:*\n" + $branch)}
+                ]
+                + (if $pr_field != null then [$pr_field] else [] end)
+                + [
+                  {type: "mrkdwn", text: ("*Commit:*\n<" + $commit_url + "|`" + $short_sha + "`>")},
+                  {type: "mrkdwn", text: ("*" + $actor_label + ":*\n" + $actor)},
+                  {type: "mrkdwn", text: ("*Job ID:*\n`" + $job_id + "`")}
+                ]
+              )
+            }')
 
-            EXTRA_BLOCKS="[]"
-            if [ "$NOTIFY_TYPE" = "Failed" ]; then
-              COMPONENT_FAILURES=$(jq -r '
-                [(.result.details.componentFailures // [])
-                 | if type == "array" then .[] else . end
-                 | "• \(.componentType): \(.fullName) — \(.problem // "unknown error")"]
-                | .[0:10] | join("\n")' deploy_report.json 2>/dev/null || echo "")
+          EXTRA_BLOCKS="[]"
+          if [ "$NOTIFY_TYPE" = "Failed" ]; then
+            COMPONENT_FAILURES=$(jq -r '
+              [(.result.details.componentFailures // [])
+               | if type == "array" then .[] else . end
+               | "• \(.componentType): \(.fullName) — \(.problem // "unknown error")"]
+              | .[0:10] | join("\n")' deploy_report.json 2>/dev/null || echo "")
 
-              TEST_FAILURES=$(jq -r '
-                [(.result.details.runTestResult.failures // [])
-                 | if type == "array" then .[] else . end
-                 | "• \(.name).\(.methodName): \(.message // "test failed")"]
-                | .[0:5] | join("\n")' deploy_report.json 2>/dev/null || echo "")
+            TEST_FAILURES=$(jq -r '
+              [(.result.details.runTestResult.failures // [])
+               | if type == "array" then .[] else . end
+               | "• \(.name).\(.methodName): \(.message // "test failed")"]
+              | .[0:5] | join("\n")' deploy_report.json 2>/dev/null || echo "")
 
-              GENERAL_ERROR=$(jq -r '.result.errorMessage // .message // empty' deploy_report.json 2>/dev/null || echo "")
+            GENERAL_ERROR=$(jq -r '.result.errorMessage // .message // empty' deploy_report.json 2>/dev/null || echo "")
 
-              NL=$'\n'
-              ERROR_MESSAGE=""
-              [ -n "$COMPONENT_FAILURES" ] && ERROR_MESSAGE="Component Failures:${NL}${COMPONENT_FAILURES}"
-              if [ -n "$TEST_FAILURES" ]; then
-                [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="${ERROR_MESSAGE}${NL}${NL}"
-                ERROR_MESSAGE="${ERROR_MESSAGE}Test Failures:${NL}${TEST_FAILURES}"
-              fi
-              if [ -n "$GENERAL_ERROR" ] && [ "$GENERAL_ERROR" != "null" ]; then
-                [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="${ERROR_MESSAGE}${NL}${NL}"
-                ERROR_MESSAGE="${ERROR_MESSAGE}${GENERAL_ERROR}"
-              fi
-              [ -z "$ERROR_MESSAGE" ] && ERROR_MESSAGE="No specific error details available. Check Salesforce deployment status for more info."
-              ERROR_MESSAGE=$(printf '%.1500s' "$ERROR_MESSAGE")
-
-              EXTRA_BLOCKS=$(jq -n --arg error_msg "$ERROR_MESSAGE" \
-                '[
-                  {type: "section", text: {type: "mrkdwn", text: ("*Error Details:*\n```" + $error_msg + "```")}},
-                  {type: "divider"},
-                  {type: "section", text: {type: "mrkdwn", text: "*🔄 To retry:* Click \u0027View Workflow\u0027 below, then click *Re-run jobs* → *Re-run failed jobs*"}}
-                ]')
+            NL=$'\n'
+            ERROR_MESSAGE=""
+            [ -n "$COMPONENT_FAILURES" ] && ERROR_MESSAGE="Component Failures:${NL}${COMPONENT_FAILURES}"
+            if [ -n "$TEST_FAILURES" ]; then
+              [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="${ERROR_MESSAGE}${NL}${NL}"
+              ERROR_MESSAGE="${ERROR_MESSAGE}Test Failures:${NL}${TEST_FAILURES}"
             fi
+            if [ -n "$GENERAL_ERROR" ] && [ "$GENERAL_ERROR" != "null" ]; then
+              [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="${ERROR_MESSAGE}${NL}${NL}"
+              ERROR_MESSAGE="${ERROR_MESSAGE}${GENERAL_ERROR}"
+            fi
+            [ -z "$ERROR_MESSAGE" ] && ERROR_MESSAGE="No specific error details available. Check Salesforce deployment status for more info."
+            ERROR_MESSAGE=$(printf '%.1500s' "$ERROR_MESSAGE")
 
-            BLOCKS=$(jq -n \
-              --argjson header "$HEADER" \
-              --argjson fields "$FIELDS_BLOCK" \
-              --argjson extra "$EXTRA_BLOCKS" \
-              --argjson buttons "$BUTTONS_BLOCK" \
-              '[$header, $fields] + $extra + [$buttons]')
+            EXTRA_BLOCKS=$(jq -n --arg error_msg "$ERROR_MESSAGE" \
+              '[
+                {type: "section", text: {type: "mrkdwn", text: ("*Error Details:*\n```" + $error_msg + "```")}},
+                {type: "divider"},
+                {type: "section", text: {type: "mrkdwn", text: "*🔄 To retry:* Click \u0027View Workflow\u0027 below, then click *Re-run jobs* → *Re-run failed jobs*"}}
+              ]')
           fi
+
+          BLOCKS=$(jq -n \
+            --argjson header "$HEADER" \
+            --argjson fields "$FIELDS_BLOCK" \
+            --argjson extra "$EXTRA_BLOCKS" \
+            --argjson buttons "$BUTTONS_BLOCK" \
+            '[$header, $fields] + $extra + [$buttons]')
 
           # -- Send --
 
