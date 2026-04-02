@@ -223,6 +223,12 @@ jobs:
 
           STATUS=$(jq -r '.result.status // .status // "Unknown"' deploy_report.json 2>/dev/null) || STATUS="Unknown"
           echo "Deployment status: $STATUS"
+
+          if [ "$STATUS" = "Unknown" ]; then
+            echo "::warning::Could not determine deployment status. Raw SF CLI output:"
+            cat deploy_report.json
+          fi
+
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
 
           if [[ "$STATUS" =~ ^(Succeeded|Failed|Canceled)$ ]]; then
