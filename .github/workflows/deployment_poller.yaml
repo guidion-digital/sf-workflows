@@ -219,7 +219,7 @@ jobs:
           sf project deploy report \
             --job-id "$DEPLOY_JOB_ID" \
             --target-org "$DEPLOY_TARGET_ORG" \
-            --json > deploy_report.json 2>&1 || true
+            --json > deploy_report.json || true
 
           STATUS=$(jq -r '.result.status // .status // "Unknown"' deploy_report.json 2>/dev/null) || STATUS="Unknown"
           echo "Deployment status: $STATUS"
