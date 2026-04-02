@@ -216,20 +216,18 @@ jobs:
         if: steps.parse.outputs.valid == 'true'
         run: |
           echo "Checking deployment status for Job ID: $DEPLOY_JOB_ID"
-          DEPLOY_REPORT=$(sf project deploy report \
+          sf project deploy report \
             --job-id "$DEPLOY_JOB_ID" \
             --target-org "$DEPLOY_TARGET_ORG" \
-            --json 2>&1) || true
+            --json > deploy_report.json 2>&1 || true
 
-          STATUS=$(echo "$DEPLOY_REPORT" | jq -r '.result.status // .status // "Unknown"' 2>/dev/null) || STATUS="Unknown"
+          STATUS=$(jq -r '.result.status // .status // "Unknown"' deploy_report.json 2>/dev/null) || STATUS="Unknown"
           echo "Deployment status: $STATUS"
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
 
           if [[ "$STATUS" =~ ^(Succeeded|Failed|Canceled)$ ]]; then
             echo "DELETE_ARTIFACT=true" >> "$GITHUB_ENV"
           fi
-
-          echo "$DEPLOY_REPORT" > deploy_report.json
 
       - name: Flush cache
         if: steps.check_status.outputs.status == 'Succeeded'
