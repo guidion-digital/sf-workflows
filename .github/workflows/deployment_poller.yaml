@@ -86,7 +86,8 @@ jobs:
       SF_BASE_URL_DEV: ${{ vars.SF_BASE_URL_DEV }}
       SF_BASE_URL_ACC: ${{ vars.SF_BASE_URL_ACC }}
       SF_BASE_URL_PROD: ${{ vars.SF_BASE_URL_PROD }}
-      CACHE_FLUSH_API_KEY: ${{ secrets.CACHE_FLUSH_API_KEY }}
+      CACHE_FLUSH_API_KEY_ACC: ${{ secrets.CACHE_FLUSH_API_KEY_ACC }}
+      CACHE_FLUSH_API_KEY_PROD: ${{ secrets.CACHE_FLUSH_API_KEY_PROD }}
       USER_ID_FOR_CACHE_FLUSH: ${{ vars.USER_ID_FOR_CACHE_FLUSH }}
     steps:
       - name: Cache Salesforce CLI
@@ -215,20 +216,18 @@ jobs:
         if: steps.parse.outputs.valid == 'true'
         run: |
           echo "Checking deployment status for Job ID: $DEPLOY_JOB_ID"
-          DEPLOY_REPORT=$(sf project deploy report \
+          sf project deploy report \
             --job-id "$DEPLOY_JOB_ID" \
             --target-org "$DEPLOY_TARGET_ORG" \
-            --json 2>&1) || true
+            --json > deploy_report.json 2>&1 || true
 
-          STATUS=$(echo "$DEPLOY_REPORT" | jq -r '.result.status // .status // "Unknown"' 2>/dev/null) || STATUS="Unknown"
+          STATUS=$(jq -r '.result.status // .status // "Unknown"' deploy_report.json 2>/dev/null) || STATUS="Unknown"
           echo "Deployment status: $STATUS"
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
 
           if [[ "$STATUS" =~ ^(Succeeded|Failed|Canceled)$ ]]; then
             echo "DELETE_ARTIFACT=true" >> "$GITHUB_ENV"
           fi
-
-          echo "$DEPLOY_REPORT" > deploy_report.json
 
       - name: Flush cache
         if: steps.check_status.outputs.status == 'Succeeded'
@@ -244,10 +243,18 @@ jobs:
             exit 0
           fi
 
+          CACHE_KEY_VAR="CACHE_FLUSH_API_KEY_${DEPLOY_ENV_UPPER}"
+          CACHE_KEY="${!CACHE_KEY_VAR}"
+
+          if [ -z "$CACHE_KEY" ]; then
+            echo "::warning::No cache flush API key configured for $DEPLOY_ENVIRONMENT"
+            exit 0
+          fi
+
           echo "Flushing cache for $DEPLOY_ENVIRONMENT environment..."
           curl -s -X POST "$FLUSH_URL" \
             -H "Content-Type: application/json" \
-            -H "x-api-key: $CACHE_FLUSH_API_KEY" \
+            -H "x-api-key: $CACHE_KEY" \
             -d "{\"userId\": \"$USER_ID_FOR_CACHE_FLUSH\"}" || echo "::warning::Cache flush failed (non-critical)"
 
       - name: Send Slack notification
