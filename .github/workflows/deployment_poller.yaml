@@ -83,9 +83,6 @@ jobs:
       SF_USERNAME_PROD: ${{ vars.SF_USERNAME_PROD }}
       SF_CLIENT_ID_PROD: ${{ vars.SF_CLIENT_ID_PROD }}
       SF_CLIENT_KEY_PROD: ${{ secrets.SF_CLIENT_KEY_PROD }}
-      SF_BASE_URL_DEV: ${{ vars.SF_BASE_URL_DEV }}
-      SF_BASE_URL_ACC: ${{ vars.SF_BASE_URL_ACC }}
-      SF_BASE_URL_PROD: ${{ vars.SF_BASE_URL_PROD }}
       CACHE_FLUSH_API_KEY_ACC: ${{ secrets.CACHE_FLUSH_API_KEY_ACC }}
       CACHE_FLUSH_API_KEY_PROD: ${{ secrets.CACHE_FLUSH_API_KEY_PROD }}
       USER_ID_FOR_CACHE_FLUSH: ${{ vars.USER_ID_FOR_CACHE_FLUSH }}
@@ -137,7 +134,7 @@ jobs:
           jq '.' "$INFO"
 
           MISSING=""
-          for FIELD in job_id environment target_org slack_channel commit_sha branch actor github_run_url; do
+          for FIELD in job_id environment target_org slack_channel; do
             VALUE=$(jq -r --arg f "$FIELD" '.[$f] // empty' "$INFO")
             [ -z "$VALUE" ] && MISSING="$MISSING $FIELD"
           done
@@ -157,32 +154,8 @@ jobs:
             echo "DEPLOY_ENV_UPPER=$(jq -r '.environment | ascii_upcase' "$INFO")"
             echo "DEPLOY_TARGET_ORG=$(jq -r '.target_org' "$INFO")"
             echo "DEPLOY_SLACK_CHANNEL=$(jq -r '.slack_channel' "$INFO")"
-            echo "DEPLOY_COMMIT_SHA=$(jq -r '.commit_sha' "$INFO")"
-            echo "DEPLOY_BRANCH=$(jq -r '.branch' "$INFO")"
-            echo "DEPLOY_ACTOR=$(jq -r '.actor' "$INFO")"
-            echo "DEPLOY_GITHUB_RUN_URL=$(jq -r '.github_run_url' "$INFO")"
-            echo "DEPLOY_SOURCE_REPO=$(jq -r '.github_repository // empty' "$INFO")"
-            echo "DEPLOY_SOURCE_SERVER=$(jq -r '.github_server_url // empty' "$INFO")"
-            echo "DEPLOY_PR_NUMBER=$(jq -r '.pr_number // empty' "$INFO")"
             echo "DEPLOY_SLACK_THREAD_TS=$(jq -r '.slack_thread_ts // empty' "$INFO")"
           } >> "$GITHUB_ENV"
-
-      - name: Resolve URLs
-        if: steps.parse.outputs.valid == 'true'
-        run: |
-          if [ -n "$DEPLOY_SOURCE_REPO" ] && [ -n "$DEPLOY_SOURCE_SERVER" ]; then
-            echo "COMMIT_URL=${DEPLOY_SOURCE_SERVER}/${DEPLOY_SOURCE_REPO}/commit/${DEPLOY_COMMIT_SHA}" >> "$GITHUB_ENV"
-            echo "PR_URL=${DEPLOY_SOURCE_SERVER}/${DEPLOY_SOURCE_REPO}/pull/${DEPLOY_PR_NUMBER}" >> "$GITHUB_ENV"
-          else
-            echo "COMMIT_URL=${{ github.server_url }}/${{ github.repository }}/commit/${DEPLOY_COMMIT_SHA}" >> "$GITHUB_ENV"
-            echo "PR_URL=${{ github.server_url }}/${{ github.repository }}/pull/${DEPLOY_PR_NUMBER}" >> "$GITHUB_ENV"
-          fi
-
-          SF_BASE_URL_VAR="SF_BASE_URL_${DEPLOY_ENV_UPPER}"
-          SF_BASE_URL="${!SF_BASE_URL_VAR}"
-          if [ -n "$SF_BASE_URL" ]; then
-            echo "SF_DEPLOY_STATUS_URL=${SF_BASE_URL}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${DEPLOY_JOB_ID}" >> "$GITHUB_ENV"
-          fi
 
       - name: Authenticate to Salesforce
         if: steps.parse.outputs.valid == 'true'
@@ -273,96 +246,23 @@ jobs:
           NOTIFY_TYPE="${{ steps.check_status.outputs.status }}"
           echo "Sending $NOTIFY_TYPE notification..."
 
-          # -- Common elements (built once) --
-
-          SF_BUTTON="null"
-          if [ -n "${SF_DEPLOY_STATUS_URL:-}" ]; then
-            SF_BUTTON=$(jq -n --arg url "$SF_DEPLOY_STATUS_URL" \
-              '{type: "button", text: {type: "plain_text", text: "🔍 SF Deploy Status"}, url: $url}')
-          fi
-
-          PR_FIELD="null"
-          if [ -n "$DEPLOY_PR_NUMBER" ]; then
-            PR_FIELD=$(jq -n --arg url "$PR_URL" --arg num "$DEPLOY_PR_NUMBER" \
-              '{type: "mrkdwn", text: ("*PR:*\n<" + $url + "|#" + $num + ">")}')
-          fi
-
-          # -- Type-specific configuration --
-
-          ACTOR_LABEL="Deployed by"
-          WF_BTN_TEXT="📋 View Workflow"
-          WF_BTN_STYLE=""
-
           case "$NOTIFY_TYPE" in
             Succeeded)
+              TITLE="✅ *Salesforce Deployment Succeeded*"
               FALLBACK="Salesforce deployment succeeded in $DEPLOY_ENVIRONMENT"
               ;;
             Failed)
+              TITLE="❌ *Salesforce Deployment Failed*"
               FALLBACK="Salesforce deployment failed in $DEPLOY_ENVIRONMENT"
-              WF_BTN_TEXT="📋 View Workflow (Re-run here)"
-              WF_BTN_STYLE="primary"
               ;;
             Canceled)
+              TITLE="🚫 *Salesforce Deployment Canceled*"
               FALLBACK="Salesforce deployment canceled in $DEPLOY_ENVIRONMENT"
-              ACTOR_LABEL="Canceled by"
               ;;
-          esac
-
-          # -- Build reusable block components --
-
-          BUTTONS_BLOCK=$(jq -n \
-            --arg run_url "$DEPLOY_GITHUB_RUN_URL" \
-            --arg commit_url "$COMMIT_URL" \
-            --arg wf_text "$WF_BTN_TEXT" \
-            --arg wf_style "$WF_BTN_STYLE" \
-            --argjson sf_button "$SF_BUTTON" \
-            '{
-              type: "actions",
-              elements: (
-                [(
-                  {type: "button", text: {type: "plain_text", text: $wf_text}, url: $run_url}
-                  + if $wf_style != "" then {style: $wf_style} else {} end
-                )]
-                + [{type: "button", text: {type: "plain_text", text: "🔗 View Commit"}, url: $commit_url}]
-                + (if $sf_button != null then [$sf_button] else [] end)
-              )
-            }')
-
-          # -- Assemble blocks --
-
-          case "$NOTIFY_TYPE" in
-            Succeeded) TITLE="✅ *Salesforce Deployment Succeeded*" ;;
-            Failed)    TITLE="❌ *Salesforce Deployment Failed*" ;;
-            Canceled)  TITLE="🚫 *Salesforce Deployment Canceled*" ;;
           esac
 
           HEADER=$(jq -n --arg title "$TITLE" \
             '{type: "section", text: {type: "mrkdwn", text: $title}}')
-
-          FIELDS_BLOCK=$(jq -n \
-            --arg env "$DEPLOY_ENVIRONMENT" \
-            --arg branch "$DEPLOY_BRANCH" \
-            --argjson pr_field "$PR_FIELD" \
-            --arg commit_url "$COMMIT_URL" \
-            --arg short_sha "${DEPLOY_COMMIT_SHA:0:7}" \
-            --arg actor "$DEPLOY_ACTOR" \
-            --arg actor_label "$ACTOR_LABEL" \
-            --arg job_id "$DEPLOY_JOB_ID" \
-            '{
-              type: "section",
-              fields: (
-                [
-                  {type: "mrkdwn", text: ("*Environment:*\n" + $env)},
-                  {type: "mrkdwn", text: ("*Branch:*\n" + $branch)}
-                ]
-                + (if $pr_field != null then [$pr_field] else [] end)
-                + [
-                  {type: "mrkdwn", text: ("*Commit:*\n<" + $commit_url + "|`" + $short_sha + "`>")},
-                  {type: "mrkdwn", text: ("*" + $actor_label + ":*\n" + $actor)},
-                  {type: "mrkdwn", text: ("*Job ID:*\n`" + $job_id + "`")}
-                ]
-              )
-            }')
 
           EXTRA_BLOCKS="[]"
           if [ "$NOTIFY_TYPE" = "Failed" ]; then
@@ -398,16 +298,14 @@ jobs:
               '[
                 {type: "section", text: {type: "mrkdwn", text: ("*Error Details:*\n```" + $error_msg + "```")}},
                 {type: "divider"},
-                {type: "section", text: {type: "mrkdwn", text: "*🔄 To retry:* Click \u0027View Workflow\u0027 below, then click *Re-run jobs* → *Re-run failed jobs*"}}
+                {type: "section", text: {type: "mrkdwn", text: "*🔄 To retry:* Click \u0027View Workflow\u0027 in the original message, then click *Re-run all jobs*"}}
               ]')
           fi
 
           BLOCKS=$(jq -n \
             --argjson header "$HEADER" \
-            --argjson fields "$FIELDS_BLOCK" \
             --argjson extra "$EXTRA_BLOCKS" \
-            --argjson buttons "$BUTTONS_BLOCK" \
-            '[$header, $fields] + $extra + [$buttons]')
+            '[$header] + $extra')
 
           # -- Send --
 

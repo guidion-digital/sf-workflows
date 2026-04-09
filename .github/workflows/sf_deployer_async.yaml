@@ -206,7 +206,9 @@ jobs:
           COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
           REPO="${{ github.repository }}"
+          REPO_NAME="${REPO##*/}"
           SERVER_URL="${{ github.server_url }}"
+          RUN_ATTEMPT="${{ github.run_attempt }}"
 
           case "$ENVIRONMENT" in
             dev)  SF_BASE_URL="$SF_BASE_URL_DEV" ;;
@@ -233,12 +235,14 @@ jobs:
             --arg channel "$SLACK_CHANNEL" \
             --arg fallback "Salesforce deployment started in $ENVIRONMENT" \
             --arg env "$ENVIRONMENT" \
+            --arg repo_name "$REPO_NAME" \
             --arg branch "$BRANCH" \
             --arg commit_url "$COMMIT_URL" \
             --arg short_sha "$SHORT_SHA" \
             --arg actor "$ACTOR" \
             --arg job_id "$JOB_ID" \
             --arg run_url "$GITHUB_RUN_URL" \
+            --arg run_attempt "$RUN_ATTEMPT" \
             --argjson pr_field "$PR_FIELD" \
             --argjson sf_button "$SF_BUTTON" \
             '{
@@ -247,13 +251,18 @@ jobs:
               blocks: [
                 {
                   type: "section",
-                  text: {type: "mrkdwn", text: "🚀 *Salesforce Deployment Started*"}
+                  text: {type: "mrkdwn", text: (
+                    if ($run_attempt | tonumber) > 1
+                    then "🔄 *Salesforce Deployment Restarted* (attempt " + $run_attempt + ")"
+                    else "🚀 *Salesforce Deployment Started*"
+                    end
+                  )}
                 },
                 {
                   type: "section",
                   fields: (
                     [
-                      {type: "mrkdwn", text: ("*Environment:*\n" + $env)},
+                      {type: "mrkdwn", text: ("*Repo:*\n" + $repo_name)},
                       {type: "mrkdwn", text: ("*Branch:*\n" + $branch)}
                     ]
                     + (if $pr_field != null then [$pr_field] else [] end)
@@ -266,7 +275,12 @@ jobs:
                 },
                 {
                   type: "context",
-                  elements: [{type: "mrkdwn", text: "Deployment is running asynchronously. You will be notified when it completes."}]
+                  elements: [{type: "mrkdwn", text: (
+                    if ($run_attempt | tonumber) > 1
+                    then "⚠️ This is a re-run. The previous attempt\u0027s completion status may not be reported to Slack."
+                    else "Deployment is running asynchronously. You will be notified when it completes."
+                    end
+                  )}]
                 },
                 {
                   type: "actions",
