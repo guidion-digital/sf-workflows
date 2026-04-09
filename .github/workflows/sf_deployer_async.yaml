@@ -217,7 +217,7 @@ jobs:
 
           SF_BUTTON="null"
           if [ -n "$SF_BASE_URL" ]; then
-            SF_DEPLOY_URL="${SF_BASE_URL}/changemgmt/monitorDeploymentsDetails.apexp?asyncId=${JOB_ID}"
+            SF_DEPLOY_URL="${SF_BASE_URL}/lightning/setup/DeployStatus/page?address=%2Fchangemgmt%2FmonitorDeploymentsDetails.apexp%3FasyncId%3D${JOB_ID}"
             SF_BUTTON=$(jq -n --arg url "$SF_DEPLOY_URL" \
               '{type: "button", text: {type: "plain_text", text: "🔍 Track in Salesforce"}, url: $url, style: "primary"}')
           fi
