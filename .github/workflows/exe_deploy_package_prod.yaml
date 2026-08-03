@@ -17,9 +17,9 @@ jobs:
             SF_TESTLEVEL: ${{ vars.SF_TESTLEVEL_PROD }}
             SF_USERNAME: ${{ vars.SF_USERNAME_PROD }}
             SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID_PROD }}
-            SF_DEVHUB_CLIENT_ID: ${{ vars.SF_DEVHUB_CLIENT_ID_PROD }}
+            SF_DEVHUB_CLIENT_ID: ${{ vars.SF_DEVHUB_CLIENT_ID }}
         secrets:
             SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_PROD }}
-            SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY_PROD }}
+            SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY }}
             NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
             SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
