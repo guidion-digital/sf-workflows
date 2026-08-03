@@ -23,6 +23,14 @@ on:
       SF_DEVHUB_USERNAME:
         type: string
         required: false
+      SF_CLIENT_ID:
+        description: Salesforce consumer key
+        type: string
+        required: false
+      SF_DEVHUB_CLIENT_ID:
+        description: Salesforce Dev Hub consumer key
+        type: string
+        required: false
       SF_LOGIN_URL:
         type: string
         required: false
@@ -38,11 +46,7 @@ on:
         required: false
         default: "tectonic-code"
     secrets:
-      SF_CLIENT_ID:
-        required: false
       SF_CLIENT_KEY:
-        required: false
-      SF_DEVHUB_CLIENT_ID:
         required: false
       SF_DEVHUB_CLIENT_KEY:
         required: false
@@ -67,9 +71,9 @@ jobs:
       SF_USERNAME: ${{ inputs.SF_USERNAME }}
       SLACK_CHANNEL: ${{ inputs.SLACK_CHANNEL }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+      SF_CLIENT_ID: ${{ inputs.SF_CLIENT_ID }}
       SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY }}
-      SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+      SF_DEVHUB_CLIENT_ID: ${{ inputs.SF_DEVHUB_CLIENT_ID }}
       SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY }}
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
