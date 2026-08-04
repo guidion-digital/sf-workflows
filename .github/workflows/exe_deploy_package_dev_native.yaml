@@ -25,6 +25,6 @@ jobs:
     secrets:
       SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID_DEV }}
       SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_DEV }}
-      SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID_DEV }}
-      SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY_DEV }}
+      SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+      SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY }}
       SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
