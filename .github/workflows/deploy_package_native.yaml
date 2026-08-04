@@ -75,7 +75,7 @@ jobs:
         uses: actions/checkout@v4.2.2
         with:
           repository: guidion-digital/sf-workflows
-          ref: v1
+          ref: GDD-6710
           path: .sf-workflows
 
       - name: Install Salesforce CLI
