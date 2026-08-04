@@ -1,0 +1,160 @@
+# The job calling this workflow requires the following permissions:
+#
+#  - contents: write
+
+name: Deploy a Salesforce package (native)
+
+on:
+  workflow_call:
+    inputs:
+      environment_name:
+        description: GH environment holding information needed to deploy
+        type: string
+        required: true
+      SF_DEVHUB_ALIAS:
+        type: string
+        required: false
+      SF_DEVHUB_SCRATCH_ALIAS:
+        type: string
+        required: false
+      SF_DEVHUB_USERNAME:
+        type: string
+        required: false
+      SF_LOGIN_URL:
+        type: string
+        required: false
+      SF_TESTLEVEL:
+        type: string
+        required: false
+      SF_USERNAME:
+        type: string
+        required: false
+      SLACK_CHANNEL:
+        description: Channel to notifify about a deployment
+        type: string
+        required: false
+        default: "tectonic-code"
+      AUTO_INSTALL_DEPENDENCIES:
+        description: When true, attempt to install/upgrade missing or outdated dependencies in the target org instead of failing the job
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      SF_CLIENT_ID:
+        required: false
+      SF_CLIENT_KEY:
+        required: false
+      SF_DEVHUB_CLIENT_ID:
+        required: false
+      SF_DEVHUB_CLIENT_KEY:
+        required: false
+      SLACK_TOKEN:
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    environment: ${{ inputs.environment_name }}
+    runs-on: ubuntu-latest
+    env:
+      SF_DEVHUB_ALIAS: ${{ inputs.SF_DEVHUB_ALIAS }}
+      SF_DEVHUB_USERNAME: ${{ inputs.SF_DEVHUB_USERNAME }}
+      SF_LOGIN_URL: ${{ inputs.SF_LOGIN_URL }}
+      SF_USERNAME: ${{ inputs.SF_USERNAME }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          # Full history + tags needed to diff commits since the last release tag
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Checkout sf-workflows helper scripts
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: guidion-digital/sf-workflows
+          ref: v1
+          path: .sf-workflows
+
+      - name: Install Salesforce CLI
+        run: npm install --global @salesforce/cli
+
+      - name: Authenticate to target org
+        env:
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY }}
+        run: bash .sf-workflows/scripts/authenticate-target-org.sh
+
+      - name: Authenticate to DevHub
+        env:
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY }}
+        run: bash .sf-workflows/scripts/authenticate-devhub.sh
+
+      - name: Verify dependency versions in target org
+        env:
+          IS_PRODUCTION: ${{ (github.ref_name == 'master' || github.ref_name == 'prod') && 'true' || 'false' }}
+          AUTO_INSTALL_DEPENDENCIES: ${{ inputs.AUTO_INSTALL_DEPENDENCIES }}
+        run: bash .sf-workflows/scripts/verify-dependencies.sh
+
+      - name: Determine version
+        id: determine_version
+        run: bash .sf-workflows/scripts/determine-version.sh
+
+      - name: Patch sfdx-project.json version number
+        id: package_info
+        env:
+          NEXT_VERSION: ${{ steps.determine_version.outputs.next_version }}
+        run: bash .sf-workflows/scripts/patch-project-version.sh
+
+      - name: Create package version
+        id: create_version
+        env:
+          PACKAGE_NAME: ${{ steps.package_info.outputs.package_name }}
+        run: bash .sf-workflows/scripts/create-package-version.sh
+
+      - name: Dump package version create failure details
+        if: failure() && steps.create_version.outcome == 'failure'
+        run: bash .sf-workflows/scripts/dump-version-create-failure.sh
+
+      - name: Upload failed version-create payload
+        if: failure() && steps.create_version.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-create-failure
+          path: version-create.json
+          if-no-files-found: ignore
+
+      - name: Promote package version
+        if: github.ref_name == 'prod'
+        env:
+          VERSION_ID: ${{ steps.create_version.outputs.version_id }}
+        run: bash .sf-workflows/scripts/promote-package-version.sh
+
+      - name: Install package version
+        env:
+          VERSION_ID: ${{ steps.create_version.outputs.version_id }}
+        run: bash .sf-workflows/scripts/install-package-version.sh
+
+      - name: Tag release
+        if: github.ref_name == 'master' || github.ref_name == 'prod'
+        env:
+          NEXT_VERSION: ${{ steps.determine_version.outputs.next_version }}
+        run: bash .sf-workflows/scripts/tag-release.sh
+
+      - name: Clean up temporary JWT key files
+        if: always()
+        run: rm -f target-client-key.key devhub-client-key.key
+
+  notify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify devs
+        uses: guidion-digital/slack-notifications@v1
+        with:
+          slack_channel: ${{ inputs.SLACK_CHANNEL }}
+          slack_token: ${{ secrets.SLACK_TOKEN }}
+          workflow_status: ${{ needs.deploy.result }}

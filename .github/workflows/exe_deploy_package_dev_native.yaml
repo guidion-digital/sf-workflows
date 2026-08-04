@@ -1,0 +1,30 @@
+name: Deploy package to dev environment (native)
+
+on:
+  workflow_call:
+    inputs:
+      AUTO_INSTALL_DEPENDENCIES:
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  deploy:
+    permissions:
+      contents: write
+    uses: guidion-digital/sf-workflows/.github/workflows/deploy_package_native.yaml@v1
+    with:
+      environment_name: dev
+      SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS_DEV }}
+      SF_DEVHUB_SCRATCH_ALIAS: ${{ vars.SF_DEVHUB_SCRATCH_ALIAS_DEV }}
+      SF_DEVHUB_USERNAME: ${{ vars.SF_DEVHUB_USERNAME_DEV }}
+      SF_LOGIN_URL: ${{ vars.SF_LOGIN_URL_DEV }}
+      SF_TESTLEVEL: ${{ vars.SF_TESTLEVEL_DEV }}
+      SF_USERNAME: ${{ vars.SF_USERNAME_DEV }}
+      AUTO_INSTALL_DEPENDENCIES: ${{ inputs.AUTO_INSTALL_DEPENDENCIES }}
+    secrets:
+      SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID_DEV }}
+      SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_DEV }}
+      SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID_DEV }}
+      SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY_DEV }}
+      SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
