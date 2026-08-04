@@ -22,8 +22,8 @@ jobs:
       SF_TESTLEVEL: ${{ vars.SF_TESTLEVEL_DEV }}
       SF_USERNAME: ${{ vars.SF_USERNAME_DEV }}
       AUTO_INSTALL_DEPENDENCIES: ${{ inputs.AUTO_INSTALL_DEPENDENCIES }}
+      SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID_DEV }}
     secrets:
-      SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID_DEV }}
       SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_DEV }}
       SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID_DEV }}
       SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY_DEV }}
