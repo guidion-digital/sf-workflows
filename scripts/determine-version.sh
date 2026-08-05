@@ -26,20 +26,58 @@ echo "::group::Commits since $LAST_TAG"
 git log "$RANGE" --pretty="  %h %s" || echo "  (no commits found)"
 echo "::endgroup::"
 
-VERSION="${LAST_TAG#v}"
-VERSION="${VERSION%%[-+]*}"
-IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-MAJOR=${MAJOR:-0}
-MINOR=${MINOR:-0}
-PATCH=${PATCH:-0}
+TAG_VERSION="${LAST_TAG#v}"
+TAG_VERSION="${TAG_VERSION%%[-+]*}"
+IFS='.' read -r TAG_MAJOR TAG_MINOR TAG_PATCH <<< "$TAG_VERSION"
+TAG_MAJOR=${TAG_MAJOR:-0}
+TAG_MINOR=${TAG_MINOR:-0}
+TAG_PATCH=${TAG_PATCH:-0}
 
-for part_name in MAJOR MINOR PATCH; do
+for part_name in TAG_MAJOR TAG_MINOR TAG_PATCH; do
   part="${!part_name}"
   if [[ ! "$part" =~ ^[0-9]+$ ]]; then
     echo "::error::Could not parse $part_name from tag '$LAST_TAG' (got '$part')"
     exit 1
   fi
 done
+
+TAG_BASELINE="${TAG_MAJOR}.${TAG_MINOR}.${TAG_PATCH}"
+echo "Tag baseline: $TAG_BASELINE"
+
+# The git tags can drift behind the Dev Hub's actual released versions (e.g. after a
+# tagging gap), which would otherwise let us compute a next version lower than what
+# Salesforce already has released. Use the Dev Hub as an additional floor.
+PACKAGE_ALIAS=$(jq -r '.packageDirectories[0].package' sfdx-project.json)
+PACKAGE_ID=$(jq -r --arg a "$PACKAGE_ALIAS" '.packageAliases[$a] // empty' sfdx-project.json)
+
+HUB_BASELINE="0.0.0"
+if [ -n "$PACKAGE_ID" ] && [ -n "${SF_DEVHUB_ALIAS:-}" ]; then
+  HUB_BASELINE=$(sf package version list \
+    --package "$PACKAGE_ID" \
+    --target-dev-hub "$SF_DEVHUB_ALIAS" \
+    --released \
+    --json | jq -r '
+      [ .result[] | "\(.MajorVersion).\(.MinorVersion).\(.PatchVersion)" ]
+      | if length == 0 then "0.0.0" else
+          sort_by(split(".") | map(tonumber)) | last
+        end
+    ')
+fi
+echo "Dev Hub baseline (highest released version): $HUB_BASELINE"
+
+if [[ ! "$HUB_BASELINE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "::error::Dev Hub baseline '$HUB_BASELINE' is not a valid MAJOR.MINOR.PATCH string"
+  exit 1
+fi
+
+BASELINE=$(jq -n -r --arg tag "$TAG_BASELINE" --arg hub "$HUB_BASELINE" '
+  ($tag | split(".") | map(tonumber)) as $t |
+  ($hub | split(".") | map(tonumber)) as $h |
+  if $h > $t then $hub else $tag end
+')
+echo "Selected baseline (max of tag/Dev Hub): $BASELINE"
+
+IFS='.' read -r MAJOR MINOR PATCH <<< "$BASELINE"
 
 case "$BUMP" in
   major)
