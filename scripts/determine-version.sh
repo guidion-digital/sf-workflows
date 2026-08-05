@@ -17,15 +17,29 @@ if [[ "$BRANCH" == "prod" ]]; then
   fi
 else
   # Dev/other branches always get a disposable patch bump off the latest release tag
+  RANGE="${LAST_TAG}..HEAD"
   BUMP=patch
 fi
 echo "Computed bump: $BUMP"
 
+echo "::group::Commits since $LAST_TAG"
+git log "$RANGE" --pretty="  %h %s" || echo "  (no commits found)"
+echo "::endgroup::"
+
 VERSION="${LAST_TAG#v}"
+VERSION="${VERSION%%[-+]*}"
 IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
 MAJOR=${MAJOR:-0}
 MINOR=${MINOR:-0}
 PATCH=${PATCH:-0}
+
+for part_name in MAJOR MINOR PATCH; do
+  part="${!part_name}"
+  if [[ ! "$part" =~ ^[0-9]+$ ]]; then
+    echo "::error::Could not parse $part_name from tag '$LAST_TAG' (got '$part')"
+    exit 1
+  fi
+done
 
 case "$BUMP" in
   major)
@@ -40,5 +54,11 @@ case "$BUMP" in
 esac
 
 NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+if [[ ! "$NEXT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "::error::Computed next version '$NEXT_VERSION' is not a valid MAJOR.MINOR.PATCH string"
+  exit 1
+fi
+
 echo "Next version: $NEXT_VERSION"
 echo "next_version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
