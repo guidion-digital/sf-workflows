@@ -63,6 +63,8 @@ jobs:
       next_version: ${{ steps.determine_version.outputs.next_version }}
       version_id: ${{ steps.create_version.outputs.version_id }}
       error_summary: ${{ steps.notify_context.outputs.error_summary }}
+      install_request_id: ${{ steps.install_version.outputs.install_request_id }}
+      sf_base_url: ${{ steps.install_version.outputs.sf_base_url }}
     env:
       SF_DEVHUB_ALIAS: ${{ inputs.SF_DEVHUB_ALIAS }}
       SF_DEVHUB_USERNAME: ${{ inputs.SF_DEVHUB_USERNAME }}
@@ -138,9 +140,23 @@ jobs:
         run: bash .sf-workflows/scripts/promote-package-version.sh
 
       - name: Install package version
+        id: install_version
+        timeout-minutes: 95
         env:
           VERSION_ID: ${{ steps.create_version.outputs.version_id }}
-        run: bash .sf-workflows/scripts/install-package-version.sh
+          SF_BASE_URL_DEV: ${{ vars.SF_BASE_URL_DEV }}
+          SF_BASE_URL_ACC: ${{ vars.SF_BASE_URL_ACC }}
+          SF_BASE_URL_PROD: ${{ vars.SF_BASE_URL_PROD }}
+          ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+        run: |
+          case "$ENVIRONMENT_NAME" in
+            dev)  SF_BASE_URL="$SF_BASE_URL_DEV" ;;
+            acc)  SF_BASE_URL="$SF_BASE_URL_ACC" ;;
+            prod) SF_BASE_URL="$SF_BASE_URL_PROD" ;;
+            *)    SF_BASE_URL="" ;;
+          esac
+          export SF_BASE_URL
+          bash .sf-workflows/scripts/install-package-version.sh
 
       - name: Tag release
         if: github.ref_name == 'master' || github.ref_name == 'prod'
@@ -181,6 +197,8 @@ jobs:
           VERSION_ID: ${{ needs.deploy.outputs.version_id }}
           SF_USERNAME: ${{ inputs.SF_USERNAME }}
           ERROR_SUMMARY: ${{ needs.deploy.outputs.error_summary }}
+          INSTALL_REQUEST_ID: ${{ needs.deploy.outputs.install_request_id }}
+          SF_BASE_URL: ${{ needs.deploy.outputs.sf_base_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_SHA: ${{ github.sha }}

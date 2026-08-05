@@ -16,6 +16,8 @@ NEXT_VERSION="${NEXT_VERSION:-}"
 VERSION_ID="${VERSION_ID:-}"
 SF_USERNAME="${SF_USERNAME:-}"
 ERROR_SUMMARY="${ERROR_SUMMARY:-}"
+INSTALL_REQUEST_ID="${INSTALL_REQUEST_ID:-}"
+SF_BASE_URL="${SF_BASE_URL:-}"
 GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
 GITHUB_REF_NAME="${GITHUB_REF_NAME:-}"
 GITHUB_SHA="${GITHUB_SHA:-}"
@@ -28,6 +30,11 @@ REPO_NAME="${GITHUB_REPOSITORY##*/}"
 SHORT_SHA=$(printf '%.7s' "$GITHUB_SHA")
 RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 COMMIT_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+
+SF_DEPLOY_URL=""
+if [ -n "$INSTALL_REQUEST_ID" ] && [ -n "$SF_BASE_URL" ]; then
+  SF_DEPLOY_URL="${SF_BASE_URL}/lightning/setup/DeployStatus/page?address=%2Fchangemgmt%2FmonitorDeploymentsDetails.apexp%3FasyncId%3D${INSTALL_REQUEST_ID}"
+fi
 
 case "$WORKFLOW_STATUS" in
   success)
@@ -107,6 +114,12 @@ if [ "$WORKFLOW_STATUS" != "success" ]; then
   fi
 fi
 
+SF_BUTTON="null"
+if [ -n "$SF_DEPLOY_URL" ]; then
+  SF_BUTTON=$(jq -n --arg url "$SF_DEPLOY_URL" \
+    '{type: "button", text: {type: "plain_text", text: "🔍 Track in Salesforce"}, url: $url, style: "primary"}')
+fi
+
 PAYLOAD=$(jq -n \
   --arg channel "$SLACK_CHANNEL" \
   --arg fallback "$FALLBACK" \
@@ -116,6 +129,7 @@ PAYLOAD=$(jq -n \
   --arg commit_url "$COMMIT_URL" \
   --argjson fields "$FIELDS_JSON" \
   --argjson extra "$EXTRA_BLOCKS" \
+  --argjson sf_button "$SF_BUTTON" \
   '{
     channel: $channel,
     text: $fallback,
@@ -129,10 +143,13 @@ PAYLOAD=$(jq -n \
       + [
         {
           type: "actions",
-          elements: [
-            {type: "button", text: {type: "plain_text", text: "📋 View Workflow"}, url: $run_url},
-            {type: "button", text: {type: "plain_text", text: "🔗 View Commit"}, url: $commit_url}
-          ]
+          elements: (
+            [
+              {type: "button", text: {type: "plain_text", text: "📋 View Workflow"}, url: $run_url},
+              {type: "button", text: {type: "plain_text", text: "🔗 View Commit"}, url: $commit_url}
+            ]
+            + (if $sf_button != null then [$sf_button] else [] end)
+          )
         }
       ]
     )
