@@ -21,7 +21,7 @@ if [ "$STATUS" -ne 0 ] || [ ! -s version-create.json ] || [ "$(jq -r '.status' v
   echo "::group::sf package version create failure details"
   if [ -f version-create.json ]; then
     echo
-    echo "---------- error message print ----------"
+    echo "---------- error message readable print ----------"
     echo
     jq -r '.message // empty' version-create.json 2>/dev/null || true
     echo
