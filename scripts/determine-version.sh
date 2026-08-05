@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/log.sh
+source "$SCRIPT_DIR/lib/log.sh"
+
 BRANCH="${GITHUB_REF_NAME}"
 git fetch --tags --force
 LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-echo "Last tag: $LAST_TAG"
+log_notice "Last tag: $LAST_TAG"
 
 if [[ "$BRANCH" == "prod" ]]; then
   RANGE="${LAST_TAG}..HEAD"
@@ -20,7 +24,7 @@ else
   RANGE="${LAST_TAG}..HEAD"
   BUMP=patch
 fi
-echo "Computed bump: $BUMP"
+log_notice "Computed bump: $BUMP"
 
 echo "::group::Commits since $LAST_TAG"
 git log "$RANGE" --pretty="  %h %s" || echo "  (no commits found)"
@@ -42,7 +46,7 @@ for part_name in TAG_MAJOR TAG_MINOR TAG_PATCH; do
 done
 
 TAG_BASELINE="${TAG_MAJOR}.${TAG_MINOR}.${TAG_PATCH}"
-echo "Tag baseline: $TAG_BASELINE"
+log_notice "Tag baseline: $TAG_BASELINE"
 
 # The git tags can drift behind the Dev Hub's actual released versions (e.g. after a
 # tagging gap), which would otherwise let us compute a next version lower than what
@@ -63,7 +67,7 @@ if [ -n "$PACKAGE_ID" ] && [ -n "${SF_DEVHUB_ALIAS:-}" ]; then
         end
     ')
 fi
-echo "Dev Hub baseline (highest released version): $HUB_BASELINE"
+log_notice "Dev Hub baseline (highest released version): $HUB_BASELINE"
 
 if [[ ! "$HUB_BASELINE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "::error::Dev Hub baseline '$HUB_BASELINE' is not a valid MAJOR.MINOR.PATCH string"
@@ -75,7 +79,7 @@ BASELINE=$(jq -n -r --arg tag "$TAG_BASELINE" --arg hub "$HUB_BASELINE" '
   ($hub | split(".") | map(tonumber)) as $h |
   if $h > $t then $hub else $tag end
 ')
-echo "Selected baseline (max of tag/Dev Hub): $BASELINE"
+log_notice "Selected baseline (max of tag/Dev Hub): $BASELINE"
 
 IFS='.' read -r MAJOR MINOR PATCH <<< "$BASELINE"
 
@@ -98,5 +102,5 @@ if [[ ! "$NEXT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
-echo "Next version: $NEXT_VERSION"
+log_success "Next version: $NEXT_VERSION"
 echo "next_version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"

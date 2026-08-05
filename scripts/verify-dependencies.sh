@@ -21,6 +21,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/log.sh
+source "$SCRIPT_DIR/lib/log.sh"
+
 : "${SF_DEVHUB_ALIAS:?SF_DEVHUB_ALIAS is required}"
 : "${SF_USERNAME:?SF_USERNAME is required}"
 IS_PRODUCTION="${IS_PRODUCTION:-false}"
@@ -38,11 +42,11 @@ fi
 DEP_ALIASES=$(jq -r '.packageDirectories[0].dependencies[]? | .package // empty' "$PROJECT_FILE")
 
 if [ -z "$DEP_ALIASES" ]; then
-  echo "No dependencies declared for this package"
+  log_success "No dependencies declared for this package"
   exit 0
 fi
 
-echo "Declared dependencies: $(echo "$DEP_ALIASES" | tr '\n' ' ')"
+log_notice "Declared dependencies: $(echo "$DEP_ALIASES" | tr '\n' ' ')"
 
 # --- Step 2: resolve each alias via packageAliases, split into pinned (04t) / unpinned (0Ho) ---
 
@@ -226,7 +230,7 @@ PROBLEMS_JSON=$(compute_problems "$EXPECTED_JSON" "$INSTALLED_JSON")
 PROBLEM_COUNT=$(echo "$PROBLEMS_JSON" | jq 'length')
 
 if [ "$PROBLEM_COUNT" -eq 0 ]; then
-  echo "All declared dependencies are satisfied in the target organization"
+  log_success "All declared dependencies are satisfied in the target organization"
   exit 0
 fi
 
@@ -240,7 +244,7 @@ fi
 
 # --- Step 6: auto-install remediation (opt-in) ---
 
-echo "AUTO_INSTALL_DEPENDENCIES is enabled, attempting to install/upgrade problem dependencies..."
+log_step "AUTO_INSTALL_DEPENDENCIES is enabled, attempting to install/upgrade problem dependencies..."
 
 echo "$PROBLEMS_JSON" | jq -c '.[]' | while IFS= read -r PROBLEM; do
   ALIAS=$(echo "$PROBLEM" | jq -r '.alias')
@@ -283,13 +287,13 @@ echo "$PROBLEMS_JSON" | jq -c '.[]' | while IFS= read -r PROBLEM; do
   fi
 done
 
-echo "Re-checking dependency status after install attempts..."
+log_step "Re-checking dependency status after install attempts..."
 INSTALLED_JSON=$(query_installed_packages)
 PROBLEMS_JSON=$(compute_problems "$EXPECTED_JSON" "$INSTALLED_JSON")
 PROBLEM_COUNT=$(echo "$PROBLEMS_JSON" | jq 'length')
 
 if [ "$PROBLEM_COUNT" -eq 0 ]; then
-  echo "All declared dependencies are satisfied in the target organization after auto-install remediation"
+  log_success "All declared dependencies are satisfied in the target organization after auto-install remediation"
   exit 0
 fi
 
