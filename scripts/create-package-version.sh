@@ -5,10 +5,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/log.sh
 source "$SCRIPT_DIR/lib/log.sh"
 
+DEFINITION_FILE="${DEFINITION_FILE:-config/project-scratch-def.json}"
+
+if [ ! -f "$DEFINITION_FILE" ]; then
+  echo "::error::Missing package definition file: $DEFINITION_FILE"
+  echo "Commit a Salesforce scratch/packaging org definition at that path (or set DEFINITION_FILE)."
+  exit 1
+fi
+
+echo "::group::Package version create definition file ($DEFINITION_FILE)"
+jq '.' "$DEFINITION_FILE" 2>/dev/null || cat "$DEFINITION_FILE"
+echo "::endgroup::"
+
 set +e
 sf package version create \
   --package "$PACKAGE_NAME" \
   --target-dev-hub "$SF_DEVHUB_ALIAS" \
+  --definition-file "$DEFINITION_FILE" \
   --installation-key-bypass \
   --code-coverage \
   --wait 30 \

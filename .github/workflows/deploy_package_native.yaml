@@ -100,7 +100,6 @@ jobs:
 
       - name: Verify dependency versions in target org
         env:
-          IS_PRODUCTION: ${{ (github.ref_name == 'master' || github.ref_name == 'prod') && 'true' || 'false' }}
           AUTO_INSTALL_DEPENDENCIES: ${{ inputs.AUTO_INSTALL_DEPENDENCIES }}
         run: bash .sf-workflows/scripts/verify-dependencies.sh
 

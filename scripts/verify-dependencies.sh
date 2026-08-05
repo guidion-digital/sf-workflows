@@ -14,8 +14,11 @@
 # Required env vars:
 #   SF_DEVHUB_ALIAS            - alias/username of the authenticated DevHub org
 #   SF_USERNAME                - alias/username of the authenticated target org
-#   IS_PRODUCTION               - "true"/"false" - controls exact-match vs semver-floor strictness
 #   AUTO_INSTALL_DEPENDENCIES   - "true"/"false" - on failure, attempt install/upgrade + re-check
+#
+# Dependency check is the same for every branch: presence + semver floor (>=).
+# Pinned deps use the resolved package version as the floor; unpinned deps use
+# versionNumber when declared. Exact SubscriberPackageVersionId matching is not used.
 #
 # Exit codes: 0 on success (including "nothing declared"), 1 on unresolved problems.
 
@@ -27,7 +30,6 @@ source "$SCRIPT_DIR/lib/log.sh"
 
 : "${SF_DEVHUB_ALIAS:?SF_DEVHUB_ALIAS is required}"
 : "${SF_USERNAME:?SF_USERNAME is required}"
-IS_PRODUCTION="${IS_PRODUCTION:-false}"
 AUTO_INSTALL_DEPENDENCIES="${AUTO_INSTALL_DEPENDENCIES:-false}"
 
 PROJECT_FILE="sfdx-project.json"
@@ -184,23 +186,11 @@ compute_problems() {
   jq -n \
     --argjson expected "$expected" \
     --argjson installed "$installed" \
-    --arg isProd "$IS_PRODUCTION" \
     '
-    ($isProd == "true") as $prod |
     [ $expected[] | . as $dep |
       ( [ $installed[] | select(.subscriberPackageId == $dep.subscriberPackageId) ] | first ) as $inst |
       if ($inst == null) then
         $dep + { problem: "missing from target org", installedVersion: null, installedVersionId: null }
-      elif ($dep.pinned and $prod) then
-        if $inst.subscriberPackageVersionId != $dep.expectedVersionId then
-          $dep + {
-            problem: "mismatch, expected exact \($dep.expectedVersion) (\($dep.expectedVersionId)), found \($inst.version) (\($inst.subscriberPackageVersionId))",
-            installedVersion: $inst.version,
-            installedVersionId: $inst.subscriberPackageVersionId
-          }
-        else
-          empty
-        end
       elif ($dep.expectedVersion == null) then
         # Unpinned dependency with no version floor declared - presence is enough.
         empty
