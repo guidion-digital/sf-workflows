@@ -257,7 +257,7 @@ echo "$PROBLEMS_JSON" | jq -c '.[]' | while IFS= read -r PROBLEM; do
     echo "Resolving latest released version of unpinned dependency '$ALIAS' ($PACKAGE_ID) satisfying floor ${FLOOR:-<none>}"
 
     LATEST_VERSION_ID=$(sf package version list \
-      --package "$PACKAGE_ID" \
+      --packages "$PACKAGE_ID" \
       --target-dev-hub "$SF_DEVHUB_ALIAS" \
       --released \
       --json | jq -r --arg floor "$FLOOR" '

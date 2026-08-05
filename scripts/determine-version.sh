@@ -53,7 +53,7 @@ PACKAGE_ID=$(jq -r --arg a "$PACKAGE_ALIAS" '.packageAliases[$a] // empty' sfdx-
 HUB_BASELINE="0.0.0"
 if [ -n "$PACKAGE_ID" ] && [ -n "${SF_DEVHUB_ALIAS:-}" ]; then
   HUB_BASELINE=$(sf package version list \
-    --package "$PACKAGE_ID" \
+    --packages "$PACKAGE_ID" \
     --target-dev-hub "$SF_DEVHUB_ALIAS" \
     --released \
     --json | jq -r '
