@@ -46,7 +46,7 @@ for part_name in TAG_MAJOR TAG_MINOR TAG_PATCH; do
 done
 
 TAG_BASELINE="${TAG_MAJOR}.${TAG_MINOR}.${TAG_PATCH}"
-log_notice "Tag baseline: $TAG_BASELINE"
+echo "Tag baseline: $TAG_BASELINE"
 
 # The git tags can drift behind the Dev Hub's actual released versions (e.g. after a
 # tagging gap), which would otherwise let us compute a next version lower than what
@@ -67,7 +67,7 @@ if [ -n "$PACKAGE_ID" ] && [ -n "${SF_DEVHUB_ALIAS:-}" ]; then
         end
     ')
 fi
-log_notice "Dev Hub baseline (highest released version): $HUB_BASELINE"
+echo "Dev Hub baseline (highest released version): $HUB_BASELINE"
 
 if [[ ! "$HUB_BASELINE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "::error::Dev Hub baseline '$HUB_BASELINE' is not a valid MAJOR.MINOR.PATCH string"

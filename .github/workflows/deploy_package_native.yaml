@@ -58,6 +58,11 @@ jobs:
   deploy:
     environment: ${{ inputs.environment_name }}
     runs-on: ubuntu-latest
+    outputs:
+      package_name: ${{ steps.package_info.outputs.package_name }}
+      next_version: ${{ steps.determine_version.outputs.next_version }}
+      version_id: ${{ steps.create_version.outputs.version_id }}
+      error_summary: ${{ steps.notify_context.outputs.error_summary }}
     env:
       SF_DEVHUB_ALIAS: ${{ inputs.SF_DEVHUB_ALIAS }}
       SF_DEVHUB_USERNAME: ${{ inputs.SF_DEVHUB_USERNAME }}
@@ -144,6 +149,11 @@ jobs:
           NEXT_VERSION: ${{ steps.determine_version.outputs.next_version }}
         run: bash .sf-workflows/scripts/tag-release.sh
 
+      - name: Capture notify context
+        id: notify_context
+        if: always()
+        run: bash .sf-workflows/scripts/capture-package-notify-context.sh
+
       - name: Clean up temporary JWT key files
         if: always()
         run: rm -f target-client-key.key devhub-client-key.key
@@ -153,9 +163,30 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Notify devs
-        uses: guidion-digital/slack-notifications@v1
+      - name: Checkout sf-workflows helper scripts
+        uses: actions/checkout@v4.2.2
         with:
-          slack_channel: ${{ inputs.SLACK_CHANNEL }}
-          slack_token: ${{ secrets.SLACK_TOKEN }}
-          workflow_status: ${{ needs.deploy.result }}
+          repository: guidion-digital/sf-workflows
+          ref: GDD-6710
+          path: .sf-workflows
+
+      - name: Notify Slack
+        continue-on-error: true
+        env:
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          SLACK_CHANNEL: ${{ inputs.SLACK_CHANNEL }}
+          WORKFLOW_STATUS: ${{ needs.deploy.result }}
+          ENVIRONMENT: ${{ inputs.environment_name }}
+          PACKAGE_NAME: ${{ needs.deploy.outputs.package_name }}
+          NEXT_VERSION: ${{ needs.deploy.outputs.next_version }}
+          VERSION_ID: ${{ needs.deploy.outputs.version_id }}
+          SF_USERNAME: ${{ inputs.SF_USERNAME }}
+          ERROR_SUMMARY: ${{ needs.deploy.outputs.error_summary }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: bash .sf-workflows/scripts/notify-package-deploy.sh
