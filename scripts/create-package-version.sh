@@ -13,7 +13,16 @@ STATUS=$?
 set -e
 
 if [ "$STATUS" -ne 0 ] || [ ! -s version-create.json ] || [ "$(jq -r '.status' version-create.json)" != "0" ]; then
-  echo "::error::Package version creation failed, see the dumped payload below"
+  echo "::error::Package version creation failed"
+  echo "::group::sf package version create failure details"
+  if [ -f version-create.json ]; then
+    jq -r '.message // empty' version-create.json 2>/dev/null || true
+    echo
+    jq '.' version-create.json 2>/dev/null || cat version-create.json
+  else
+    echo "No version-create.json was produced."
+  fi
+  echo "::endgroup::"
   exit 1
 fi
 
