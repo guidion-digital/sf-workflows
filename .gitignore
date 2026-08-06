@@ -32,3 +32,9 @@ override.tf.json
 examples/personal/*
 
 **/builds
+
+# AI Skills and Tessl metadata
+.tessl/
+tessl.json
+.agents/
+.cursor/
