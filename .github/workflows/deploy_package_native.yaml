@@ -23,9 +23,6 @@ on:
       SF_LOGIN_URL:
         type: string
         required: false
-      SF_TESTLEVEL:
-        type: string
-        required: false
       SF_USERNAME:
         type: string
         required: false
@@ -55,12 +52,13 @@ permissions:
   contents: write
 
 jobs:
-  deploy:
+  package-deploy:
     environment: ${{ inputs.environment_name }}
     runs-on: ubuntu-latest
     outputs:
       package_name: ${{ steps.package_info.outputs.package_name }}
       next_version: ${{ steps.determine_version.outputs.next_version }}
+      package_version_full: ${{ steps.resolve_version.outputs.package_version_full }}
       version_id: ${{ steps.create_version.outputs.version_id }}
       error_summary: ${{ steps.notify_context.outputs.error_summary }}
       install_request_id: ${{ steps.install_version.outputs.install_request_id }}
@@ -125,6 +123,12 @@ jobs:
         if: failure() && steps.create_version.outcome == 'failure'
         run: bash .sf-workflows/scripts/dump-version-create-failure.sh
 
+      - name: Resolve created package version
+        id: resolve_version
+        env:
+          VERSION_ID: ${{ steps.create_version.outputs.version_id }}
+        run: bash .sf-workflows/scripts/resolve-package-version.sh
+
       - name: Upload failed version-create payload
         if: failure() && steps.create_version.outcome == 'failure'
         uses: actions/upload-artifact@v4
@@ -159,9 +163,9 @@ jobs:
           bash .sf-workflows/scripts/install-package-version.sh
 
       - name: Tag release
-        if: github.ref_name == 'master' || github.ref_name == 'prod'
         env:
-          NEXT_VERSION: ${{ steps.determine_version.outputs.next_version }}
+          PACKAGE_VERSION_FULL: ${{ steps.resolve_version.outputs.package_version_full }}
+          EXPECTED_VERSION: ${{ steps.determine_version.outputs.next_version }}
         run: bash .sf-workflows/scripts/tag-release.sh
 
       - name: Capture notify context
@@ -174,7 +178,7 @@ jobs:
         run: rm -f target-client-key.key devhub-client-key.key
 
   notify:
-    needs: deploy
+    needs: package-deploy
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -190,15 +194,16 @@ jobs:
         env:
           SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
           SLACK_CHANNEL: ${{ inputs.SLACK_CHANNEL }}
-          WORKFLOW_STATUS: ${{ needs.deploy.result }}
+          WORKFLOW_STATUS: ${{ needs.package-deploy.result }}
           ENVIRONMENT: ${{ inputs.environment_name }}
-          PACKAGE_NAME: ${{ needs.deploy.outputs.package_name }}
-          NEXT_VERSION: ${{ needs.deploy.outputs.next_version }}
-          VERSION_ID: ${{ needs.deploy.outputs.version_id }}
+          PACKAGE_NAME: ${{ needs.package-deploy.outputs.package_name }}
+          NEXT_VERSION: ${{ needs.package-deploy.outputs.next_version }}
+          PACKAGE_VERSION_FULL: ${{ needs.package-deploy.outputs.package_version_full }}
+          VERSION_ID: ${{ needs.package-deploy.outputs.version_id }}
           SF_USERNAME: ${{ inputs.SF_USERNAME }}
-          ERROR_SUMMARY: ${{ needs.deploy.outputs.error_summary }}
-          INSTALL_REQUEST_ID: ${{ needs.deploy.outputs.install_request_id }}
-          SF_BASE_URL: ${{ needs.deploy.outputs.sf_base_url }}
+          ERROR_SUMMARY: ${{ needs.package-deploy.outputs.error_summary }}
+          INSTALL_REQUEST_ID: ${{ needs.package-deploy.outputs.install_request_id }}
+          SF_BASE_URL: ${{ needs.package-deploy.outputs.sf_base_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_SHA: ${{ github.sha }}

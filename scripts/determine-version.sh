@@ -32,10 +32,11 @@ echo "::endgroup::"
 
 TAG_VERSION="${LAST_TAG#v}"
 TAG_VERSION="${TAG_VERSION%%[-+]*}"
-IFS='.' read -r TAG_MAJOR TAG_MINOR TAG_PATCH <<< "$TAG_VERSION"
+IFS='.' read -r TAG_MAJOR TAG_MINOR TAG_PATCH TAG_BUILD <<< "$TAG_VERSION"
 TAG_MAJOR=${TAG_MAJOR:-0}
 TAG_MINOR=${TAG_MINOR:-0}
 TAG_PATCH=${TAG_PATCH:-0}
+TAG_BUILD=${TAG_BUILD:-0}
 
 for part_name in TAG_MAJOR TAG_MINOR TAG_PATCH; do
   part="${!part_name}"
@@ -45,8 +46,13 @@ for part_name in TAG_MAJOR TAG_MINOR TAG_PATCH; do
   fi
 done
 
+if [[ ! "$TAG_BUILD" =~ ^[0-9]+$ ]]; then
+  echo "::error::Could not parse TAG_BUILD from tag '$LAST_TAG' (got '$TAG_BUILD')"
+  exit 1
+fi
+
 TAG_BASELINE="${TAG_MAJOR}.${TAG_MINOR}.${TAG_PATCH}"
-echo "Tag baseline: $TAG_BASELINE"
+log_notice "Parsed tag $LAST_TAG → baseline $TAG_BASELINE (build $TAG_BUILD)"
 
 # The git tags can drift behind the Dev Hub's actual released versions (e.g. after a
 # tagging gap), which would otherwise let us compute a next version lower than what

@@ -13,6 +13,8 @@ source "$SCRIPT_DIR/lib/log.sh"
 ENVIRONMENT="${ENVIRONMENT:-}"
 PACKAGE_NAME="${PACKAGE_NAME:-}"
 NEXT_VERSION="${NEXT_VERSION:-}"
+PACKAGE_VERSION_FULL="${PACKAGE_VERSION_FULL:-}"
+DISPLAY_VERSION="${PACKAGE_VERSION_FULL:-$NEXT_VERSION}"
 VERSION_ID="${VERSION_ID:-}"
 SF_USERNAME="${SF_USERNAME:-}"
 ERROR_SUMMARY="${ERROR_SUMMARY:-}"
@@ -81,7 +83,7 @@ FIELDS_JSON=$(jq -n \
   --argjson branch "$(field "Branch" "$GITHUB_REF_NAME")" \
   --argjson environment "$(field "Environment" "$ENVIRONMENT")" \
   --argjson package "$(field "Package" "$PACKAGE_NAME")" \
-  --argjson version "$(field "Version" "$NEXT_VERSION")" \
+  --argjson version "$(field "Version" "$DISPLAY_VERSION")" \
   --argjson version_id "$(field "Version Id" "$VERSION_ID_FIELD_VALUE")" \
   --argjson target_org "$(field "Target org" "$SF_USERNAME")" \
   --argjson started_by "$(field "Started by" "$GITHUB_ACTOR")" \
@@ -92,8 +94,12 @@ FIELDS_JSON=$(jq -n \
   ] | map(select(. != null))')
 
 CONTEXT_TEXT="Installed into target org."
-if [ "$WORKFLOW_STATUS" = "success" ] && { [ "$ENVIRONMENT" = "prod" ] || [ "$GITHUB_REF_NAME" = "prod" ]; }; then
-  CONTEXT_TEXT="Installed into target org. Package version was promoted and release tagged."
+if [ "$WORKFLOW_STATUS" = "success" ]; then
+  if [ "$ENVIRONMENT" = "prod" ] || [ "$GITHUB_REF_NAME" = "prod" ]; then
+    CONTEXT_TEXT="Installed into target org. Package version was promoted and release tagged."
+  else
+    CONTEXT_TEXT="Installed into target org. Release tagged."
+  fi
 elif [ "$WORKFLOW_STATUS" != "success" ]; then
   CONTEXT_TEXT="Package deploy did not complete successfully."
 fi
