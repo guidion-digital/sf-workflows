@@ -62,6 +62,13 @@ jobs:
   deploy:
     environment: ${{ inputs.environment_name }}
     runs-on: ubuntu-latest
+    outputs:
+      package_name: ${{ steps.deploy_package.outputs.package_name }}
+      next_version: ${{ steps.deploy_package.outputs.next_version }}
+      package_version_full: ${{ steps.deploy_package.outputs.package_version_full }}
+      version_id: ${{ steps.deploy_package.outputs.version_id }}
+      install_request_id: ${{ steps.deploy_package.outputs.install_request_id }}
+      error_summary: ${{ steps.deploy_package.outputs.error_summary }}
     env:
       SF_DEVHUB_ALIAS: ${{ inputs.SF_DEVHUB_ALIAS }}
       SF_DEVHUB_SCRATCH_ALIAS: ${{ inputs.SF_DEVHUB_SCRATCH_ALIAS }}
@@ -100,6 +107,7 @@ jobs:
             echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
             npm install
       - name: Deploy package
+        id: deploy_package
         timeout-minutes: 180
         run: npx semantic-release -e @gdn/semantic-release-sfdx-config
       - name: Upload Apex test results
@@ -112,11 +120,153 @@ jobs:
 
   notify:
     needs: deploy
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Notify devs
-        uses: guidion-digital/slack-notifications@v1
-        with:
-          slack_channel: ${{ inputs.SLACK_CHANNEL }}
-          slack_token: ${{ secrets.SLACK_TOKEN }}
-          workflow_status: ${{ needs.deploy.result }}
+        continue-on-error: true
+        env:
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          SLACK_CHANNEL: ${{ inputs.SLACK_CHANNEL }}
+          WORKFLOW_STATUS: ${{ needs.deploy.result }}
+          ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+          SF_USERNAME: ${{ inputs.SF_USERNAME }}
+          PACKAGE_NAME: ${{ needs.deploy.outputs.package_name }}
+          NEXT_VERSION: ${{ needs.deploy.outputs.next_version }}
+          PACKAGE_VERSION_FULL: ${{ needs.deploy.outputs.package_version_full }}
+          VERSION_ID: ${{ needs.deploy.outputs.version_id }}
+          INSTALL_REQUEST_ID: ${{ needs.deploy.outputs.install_request_id }}
+          ERROR_SUMMARY: ${{ needs.deploy.outputs.error_summary }}
+          SF_BASE_URL_DEV: ${{ vars.SF_BASE_URL_DEV }}
+          SF_BASE_URL_ACC: ${{ vars.SF_BASE_URL_ACC }}
+          SF_BASE_URL_PROD: ${{ vars.SF_BASE_URL_PROD }}
+        run: |
+          case "$ENVIRONMENT_NAME" in
+            dev)  SF_BASE_URL="$SF_BASE_URL_DEV" ;;
+            acc)  SF_BASE_URL="$SF_BASE_URL_ACC" ;;
+            prod) SF_BASE_URL="$SF_BASE_URL_PROD" ;;
+            *)    SF_BASE_URL="" ;;
+          esac
+
+          DISPLAY_VERSION="${PACKAGE_VERSION_FULL:-$NEXT_VERSION}"
+
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          SHORT_SHA=$(printf '%.7s' "$GITHUB_SHA")
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          COMMIT_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+
+          SF_DEPLOY_URL=""
+          if [ -n "$INSTALL_REQUEST_ID" ] && [ -n "$SF_BASE_URL" ]; then
+            SF_DEPLOY_URL="${SF_BASE_URL}/lightning/setup/DeployStatus/page?address=%2Fchangemgmt%2FmonitorDeploymentsDetails.apexp%3FasyncId%3D${INSTALL_REQUEST_ID}"
+          fi
+
+          case "$WORKFLOW_STATUS" in
+            success)
+              TITLE="✅ *Package Deploy Succeeded* — \`${ENVIRONMENT_NAME}\` — \`${PACKAGE_NAME}\`"
+              FALLBACK="Package deploy succeeded in ${ENVIRONMENT_NAME}"
+              ;;
+            cancelled)
+              TITLE="🚫 *Package Deploy Canceled* — \`${ENVIRONMENT_NAME}\` — \`${PACKAGE_NAME}\`"
+              FALLBACK="Package deploy canceled in ${ENVIRONMENT_NAME}"
+              ;;
+            *)
+              TITLE="❌ *Package Deploy Failed* — \`${ENVIRONMENT_NAME}\` — \`${PACKAGE_NAME}\`"
+              FALLBACK="Package deploy failed in ${ENVIRONMENT_NAME}"
+              ;;
+          esac
+
+          field() {
+            local label="$1"
+            local value="$2"
+            if [ -z "$value" ]; then
+              echo "null"
+              return
+            fi
+            jq -n --arg label "$label" --arg value "$value" \
+              '{type: "mrkdwn", text: ("*" + $label + ":*\n" + $value)}'
+          }
+
+          COMMIT_FIELD_VALUE=""
+          if [ -n "$SHORT_SHA" ]; then
+            COMMIT_FIELD_VALUE="<${COMMIT_URL}|\`${SHORT_SHA}\`>"
+          fi
+
+          VERSION_ID_FIELD_VALUE=""
+          if [ -n "$VERSION_ID" ]; then
+            VERSION_ID_FIELD_VALUE="\`${VERSION_ID}\`"
+          fi
+
+          FIELDS_JSON=$(jq -n \
+            --argjson repo "$(field "Repo" "$REPO_NAME")" \
+            --argjson branch "$(field "Branch" "$GITHUB_REF_NAME")" \
+            --argjson environment "$(field "Environment" "$ENVIRONMENT_NAME")" \
+            --argjson package "$(field "Package" "$PACKAGE_NAME")" \
+            --argjson version "$(field "Version" "$DISPLAY_VERSION")" \
+            --argjson version_id "$(field "Version Id" "$VERSION_ID_FIELD_VALUE")" \
+            --argjson target_org "$(field "Target org" "$SF_USERNAME")" \
+            --argjson started_by "$(field "Started by" "$GITHUB_ACTOR")" \
+            --argjson commit "$(field "Commit" "$COMMIT_FIELD_VALUE")" \
+            '[
+              $repo, $branch, $environment, $package, $version,
+              $version_id, $target_org, $started_by, $commit
+            ] | map(select(. != null))')
+
+          EXTRA_BLOCKS='[]'
+          if [ "$WORKFLOW_STATUS" != "success" ]; then
+            if [ -n "$ERROR_SUMMARY" ]; then
+              TRUNCATED_ERROR=$(printf '%.1500s' "$ERROR_SUMMARY")
+              EXTRA_BLOCKS=$(jq -n --arg error_msg "$TRUNCATED_ERROR" \
+                '[
+                  {type: "section", text: {type: "mrkdwn", text: ("*Error Details:*\n```" + $error_msg + "```")}},
+                  {type: "divider"},
+                  {type: "section", text: {type: "mrkdwn", text: "*🔄 To retry:* Click \u0027View Workflow\u0027, then *Re-run all jobs*"}}
+                ]')
+            else
+              EXTRA_BLOCKS=$(jq -n \
+                '[{type: "section", text: {type: "mrkdwn", text: "*🔄 To retry:* Click \u0027View Workflow\u0027, then *Re-run all jobs*"}}]')
+            fi
+          fi
+
+          SF_BUTTON="null"
+          if [ -n "$SF_DEPLOY_URL" ]; then
+            SF_BUTTON=$(jq -n --arg url "$SF_DEPLOY_URL" \
+              '{type: "button", text: {type: "plain_text", text: "🔍 Track in Salesforce"}, url: $url, style: "primary"}')
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg fallback "$FALLBACK" \
+            --arg title "$TITLE" \
+            --arg run_url "$RUN_URL" \
+            --arg commit_url "$COMMIT_URL" \
+            --argjson fields "$FIELDS_JSON" \
+            --argjson extra "$EXTRA_BLOCKS" \
+            --argjson sf_button "$SF_BUTTON" \
+            '{
+              channel: $channel,
+              text: $fallback,
+              blocks: (
+                [
+                  {type: "section", text: {type: "mrkdwn", text: $title}},
+                  {type: "section", fields: $fields}
+                ]
+                + $extra
+                + [
+                  {
+                    type: "actions",
+                    elements: (
+                      [
+                        {type: "button", text: {type: "plain_text", text: "📋 View Workflow"}, url: $run_url},
+                        {type: "button", text: {type: "plain_text", text: "🔗 View Commit"}, url: $commit_url}
+                      ]
+                      + (if $sf_button != null then [$sf_button] else [] end)
+                    )
+                  }
+                ]
+              )
+            }')
+
+          curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $SLACK_TOKEN" \
+            -d "$PAYLOAD"
