@@ -86,26 +86,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
-      - name: Cache node modules
-        id: cache-nodemodules
+      - name: Cache npm download cache
+        id: cache-npm
         uses: actions/cache@v4.2.0
         env:
-          cache-name: cache-node-modules
+          cache-name: cache-npm
         with:
-          path: node_modules
+          path: ~/.npm
           key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-build-${{ env.cache-name }}-
-            ${{ runner.os }}-build-
-            ${{ runner.os }}-
-      - if: ${{ steps.cache-nodemodules.outputs.cache-hit != 'true' }}
-        name: List the state of node modules
-        continue-on-error: true
-        run: npm list
       - name: Install dependencies
         run: |
             echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
-            npm install
+            npm ci
       - name: Deploy package
         id: deploy_package
         timeout-minutes: 180
