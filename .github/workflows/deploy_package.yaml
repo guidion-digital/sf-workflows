@@ -3,6 +3,8 @@
 #  - contents: write
 #  - actions: write
 #  - attestations: write
+#  - pull-requests: write
+#  - issues: write
 
 
 name: Deploy a Salesforce package
@@ -57,6 +59,8 @@ on:
 
 permissions:
     contents: write
+    pull-requests: write
+    issues: write
 
 jobs:
   deploy:
