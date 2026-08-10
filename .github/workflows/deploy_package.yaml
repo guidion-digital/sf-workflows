@@ -154,10 +154,24 @@ jobs:
             SF_DEPLOY_URL="${SF_BASE_URL}/lightning/setup/DeployStatus/page?address=%2Fchangemgmt%2FmonitorDeploymentsDetails.apexp%3FasyncId%3D${INSTALL_REQUEST_ID}"
           fi
 
+          # semantic-release always runs on a successful job, but only writes
+          # NEXT_VERSION (via the prepare hook) when it actually decides to
+          # cut a release. A success with no NEXT_VERSION means it ran and
+          # found no relevant commits since the last release.
+          NO_RELEASE_NEEDED=false
+          if [ "$WORKFLOW_STATUS" = "success" ] && [ -z "$NEXT_VERSION" ]; then
+            NO_RELEASE_NEEDED=true
+          fi
+
           case "$WORKFLOW_STATUS" in
             success)
-              TITLE="✅ *Package Deploy Succeeded* — \`${ENVIRONMENT_NAME}\` — \`${PACKAGE_NAME}\`"
-              FALLBACK="Package deploy succeeded in ${ENVIRONMENT_NAME}"
+              if [ "$NO_RELEASE_NEEDED" = true ]; then
+                TITLE="ℹ️ *Package Deploy Succeeded — No Release Needed* — \`${ENVIRONMENT_NAME}\` — \`${REPO_NAME}\`"
+                FALLBACK="No release needed for ${ENVIRONMENT_NAME} (no relevant commits since last release)"
+              else
+                TITLE="✅ *Package Deploy Succeeded* — \`${ENVIRONMENT_NAME}\` — \`${PACKAGE_NAME}\`"
+                FALLBACK="Package deploy succeeded in ${ENVIRONMENT_NAME}"
+              fi
               ;;
             cancelled)
               TITLE="🚫 *Package Deploy Canceled* — \`${ENVIRONMENT_NAME}\` — \`${PACKAGE_NAME}\`"
@@ -219,6 +233,9 @@ jobs:
               EXTRA_BLOCKS=$(jq -n \
                 '[{type: "section", text: {type: "mrkdwn", text: "*🔄 To retry:* Click \u0027View Workflow\u0027, then *Re-run all jobs*"}}]')
             fi
+          elif [ "$NO_RELEASE_NEEDED" = true ]; then
+            EXTRA_BLOCKS=$(jq -n \
+              '[{type: "section", text: {type: "mrkdwn", text: "*ℹ️ No relevant commits* were found since the last release, so no new package version was created."}}]')
           fi
 
           SF_BUTTON="null"
