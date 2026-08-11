@@ -7,8 +7,6 @@ jobs:
     deploy:
         permissions:
             contents: write
-            pull-requests: write
-            issues: write
         uses: guidion-digital/sf-workflows/.github/workflows/deploy_package.yaml@1.11.0
         with:
             environment_name: prod
