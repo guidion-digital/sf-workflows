@@ -98,6 +98,12 @@ jobs:
         run: |
             echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
             npm ci
+      - name: Link Salesforce CLI plugin
+        # The sf CLI does not auto-discover command plugins from node_modules; it
+        # keeps its own plugin registry that only "sf plugins install/link"
+        # populates. Link the copy npm ci already resolved so the linked
+        # command version always matches the consuming repo's package.json.
+        run: npx sf plugins link ./node_modules/@gdn/semantic-release-salesforce
       - name: Resolve version to install
         id: resolve_version
         timeout-minutes: 10
