@@ -1,0 +1,23 @@
+{
+  "name": "sf-workflows",
+  "mode": "vendored",
+  "dependencies": {
+    "pantheon-ai/github-actions-toolkit": {
+      "version": "1.0.1"
+    },
+    "aaddrick/claude-desktop-debian": {
+      "version": "590b5955d5f8545071c6bd18b5bda03da31988f1",
+      "source": "https://github.com/aaddrick/claude-desktop-debian",
+      "include": {
+        "skills": [
+          "lint"
+        ]
+      }
+    }
+  },
+  "agents": [
+    "codex",
+    "claude-code",
+    "cursor"
+  ]
+}
