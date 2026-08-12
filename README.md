@@ -12,7 +12,6 @@ Only [tessl.json](tessl.json) is committed. Tessl downloads the pinned skills an
 
    ```bash
    curl -fsSL https://get.tessl.io | sh
-   tessl login
    ```
 
 2. From the repository root, configure all supported agents and install this repository's pinned skills:
