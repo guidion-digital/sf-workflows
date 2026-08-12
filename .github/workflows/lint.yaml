@@ -73,7 +73,7 @@ jobs:
       - name: Checkout sf-workflows (baseline ruleset)
         uses: actions/checkout@v4.2.2
         with:
-          repository: ${{ job.workflow_repository }}
+          repository: guidion-digital/sf-workflows
           ref: ${{ inputs.baseline_ref }}
           path: .sf-workflows
           token: ${{ secrets.WORKFLOWS_CHECKOUT_TOKEN || github.token }}
