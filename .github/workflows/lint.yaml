@@ -1,0 +1,152 @@
+name: Lint Apex (PMD)
+
+# Reusable lint workflow. Consuming repos should call this on PR/push:
+#
+#   name: lint
+#   on:
+#     pull_request:
+#     push:
+#       branches: [master, main, develop, dev]
+#   jobs:
+#     lint:
+#       uses: guidion-digital/sf-workflows/.github/workflows/lint.yaml@v1
+#       with:
+#         run_editorconfig: true   # optional
+#       secrets:
+#         WORKFLOWS_CHECKOUT_TOKEN: ${{ secrets.WORKFLOWS_CHECKOUT_TOKEN }}  # if sf-workflows is private
+#
+# Ruleset resolution:
+#   1. ruleset_path input (if set) → must exist in the caller repo
+#   2. else pmdruleset.xml in caller repo root → local override
+#   3. else shared Guidion baseline from this repo at baseline_ref (default v1)
+
+on:
+  workflow_call:
+    inputs:
+      pmd_version:
+        description: PMD version to download and run
+        type: string
+        required: false
+        default: '7.15.0'
+      pmd_target:
+        description: Comma-separated Apex paths for PMD
+        type: string
+        required: false
+        default: 'force-app/main/default/classes,force-app/main/default/triggers'
+      ruleset_path:
+        description: Optional ruleset path in the caller repo (overrides auto-detect and baseline)
+        type: string
+        required: false
+        default: ''
+      baseline_ref:
+        description: Ref of sf-workflows for the shared baseline ruleset
+        type: string
+        required: false
+        default: 'v1'
+      java_version:
+        description: Temurin JDK version
+        type: string
+        required: false
+        default: '21'
+      run_editorconfig:
+        description: Also run editorconfig-checker via npx
+        type: boolean
+        required: false
+        default: false
+      node_version:
+        description: Node version when run_editorconfig is true
+        type: string
+        required: false
+        default: '20'
+    secrets:
+      WORKFLOWS_CHECKOUT_TOKEN:
+        description: Token with contents read on sf-workflows (needed if that repo is private)
+        required: false
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Checkout sf-workflows (baseline ruleset)
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ inputs.baseline_ref }}
+          path: .sf-workflows
+          token: ${{ secrets.WORKFLOWS_CHECKOUT_TOKEN || github.token }}
+
+      - name: Resolve ruleset
+        id: ruleset
+        run: |
+          set -euo pipefail
+          INPUT_PATH="${{ inputs.ruleset_path }}"
+          if [[ -n "$INPUT_PATH" ]]; then
+            if [[ ! -f "$INPUT_PATH" ]]; then
+              echo "ruleset_path was set but file not found: $INPUT_PATH" >&2
+              exit 1
+            fi
+            PATH_OUT="$INPUT_PATH"
+            SOURCE="ruleset_path"
+          elif [[ -f pmdruleset.xml ]]; then
+            PATH_OUT="pmdruleset.xml"
+            SOURCE="local override"
+          elif [[ -f .sf-workflows/pmdruleset.xml ]]; then
+            PATH_OUT=".sf-workflows/pmdruleset.xml"
+            SOURCE="shared baseline"
+          else
+            echo "No ruleset found (input, local pmdruleset.xml, or shared baseline)." >&2
+            exit 1
+          fi
+          echo "path=$PATH_OUT" >> "$GITHUB_OUTPUT"
+          echo "Using ruleset: $PATH_OUT ($SOURCE)"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4.7.1
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java_version }}
+
+      - name: Cache PMD
+        uses: actions/cache@v4.2.0
+        with:
+          path: tools/pmd-bin-${{ inputs.pmd_version }}
+          key: pmd-${{ inputs.pmd_version }}
+
+      - name: Run PMD
+        run: |
+          set -euo pipefail
+          PMD_VERSION="${{ inputs.pmd_version }}"
+          PMD_TARGET="${{ inputs.pmd_target }}"
+          RULESET="${{ steps.ruleset.outputs.path }}"
+          PMD_DIR="tools/pmd-bin-${PMD_VERSION}"
+          PMD_BIN="${PMD_DIR}/bin/pmd"
+
+          if [[ ! -x "$PMD_BIN" ]]; then
+            mkdir -p tools
+            ARCHIVE="tools/pmd-dist-${PMD_VERSION}-bin.zip"
+            curl -fsSL -o "$ARCHIVE" \
+              "https://github.com/pmd/pmd/releases/download/pmd_releases%2F${PMD_VERSION}/pmd-dist-${PMD_VERSION}-bin.zip"
+            unzip -qo "$ARCHIVE" -d tools
+            rm -f "$ARCHIVE"
+          fi
+
+          echo "PMD ${PMD_VERSION} → ${PMD_TARGET} (${RULESET})"
+          "$PMD_BIN" check \
+            -d "$PMD_TARGET" \
+            -R "$RULESET" \
+            -f text \
+            --no-cache \
+            --no-progress
+
+      - name: Set up Node
+        if: ${{ inputs.run_editorconfig }}
+        uses: actions/setup-node@v4.3.0
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Run editorconfig-checker
+        if: ${{ inputs.run_editorconfig }}
+        run: npx --yes editorconfig-checker

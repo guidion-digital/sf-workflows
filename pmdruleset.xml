@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+
+<ruleset name="Guidion Apex Baseline"
+    xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+
+    <description>
+        Shared baseline PMD rules for Apex across Guidion Salesforce repos.
+        Repos that need extra excludes or stricter rules can commit a local
+        pmdruleset.xml (or pass ruleset_path to the lint reusable workflow).
+    </description>
+
+    <!-- Common third-party / framework -->
+    <exclude-pattern>.*/fflib_.*\.cls</exclude-pattern>
+
+    <!-- Best practices -->
+    <rule ref="category/apex/bestpractices.xml/AvoidLogicInTrigger" />
+    <rule ref="category/apex/bestpractices.xml/ApexUnitTestShouldNotUseSeeAllDataTrue" />
+    <rule ref="category/apex/bestpractices.xml/ApexUnitTestMethodShouldHaveIsTestAnnotation" />
+    <rule ref="category/apex/bestpractices.xml/DebugsShouldUseLoggingLevel" />
+
+    <!-- Code style -->
+    <rule ref="category/apex/codestyle.xml/ForLoopsMustUseBraces" />
+    <rule ref="category/apex/codestyle.xml/IfElseStmtsMustUseBraces" />
+    <rule ref="category/apex/codestyle.xml/IfStmtsMustUseBraces" />
+    <rule ref="category/apex/codestyle.xml/OneDeclarationPerLine" />
+
+    <!-- Error prone -->
+    <rule ref="category/apex/errorprone.xml/ApexCSRF" />
+    <rule ref="category/apex/errorprone.xml/AvoidDirectAccessTriggerMap" />
+    <rule ref="category/apex/errorprone.xml/AvoidHardcodingId" />
+    <rule ref="category/apex/errorprone.xml/AvoidNonExistentAnnotations" />
+    <rule ref="category/apex/errorprone.xml/EmptyIfStmt" />
+    <rule ref="category/apex/errorprone.xml/EmptyWhileStmt" />
+    <rule ref="category/apex/errorprone.xml/EmptyTryOrFinallyBlock" />
+    <rule ref="category/apex/errorprone.xml/MethodWithSameNameAsEnclosingClass" />
+
+    <!-- Security -->
+    <rule ref="category/apex/security.xml/ApexBadCrypto" />
+    <rule ref="category/apex/security.xml/ApexDangerousMethods" />
+    <rule ref="category/apex/security.xml/ApexInsecureEndpoint" />
+    <rule ref="category/apex/security.xml/ApexOpenRedirect" />
+    <rule ref="category/apex/security.xml/ApexSOQLInjection" />
+    <rule ref="category/apex/security.xml/ApexXSSFromEscapeFalse" />
+    <rule ref="category/apex/security.xml/ApexXSSFromURLParam" />
+
+</ruleset>
