@@ -32,3 +32,13 @@ override.tf.json
 examples/personal/*
 
 **/builds
+
+# Tessl dependencies and per-developer agent configuration
+/.tessl/
+/.agents/
+/.claude/
+/.codex/
+/.cursor/
+/.mcp.json
+/.vscode/mcp.json
+/.vscode/skills/
