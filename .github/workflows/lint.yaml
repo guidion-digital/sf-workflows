@@ -68,40 +68,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout caller repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout sf-workflows (baseline ruleset)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: guidion-digital/sf-workflows
           ref: ${{ inputs.baseline_ref }}
           path: .sf-workflows
           token: ${{ secrets.WORKFLOWS_CHECKOUT_TOKEN || github.token }}
 
-      - name: Resolve ruleset
-        id: ruleset
+      - name: Use ruleset from ruleset_path input
+        id: ruleset_input
+        if: ${{ inputs.ruleset_path != '' }}
         run: |
           set -euo pipefail
-          INPUT_PATH="${{ inputs.ruleset_path }}"
-          if [[ -n "$INPUT_PATH" ]]; then
-            if [[ ! -f "$INPUT_PATH" ]]; then
-              echo "ruleset_path was set but file not found: $INPUT_PATH" >&2
-              exit 1
-            fi
-            PATH_OUT="$INPUT_PATH"
-            SOURCE="ruleset_path"
-          elif [[ -f pmdruleset.xml ]]; then
-            PATH_OUT="pmdruleset.xml"
-            SOURCE="local override"
-          elif [[ -f .sf-workflows/pmdruleset.xml ]]; then
-            PATH_OUT=".sf-workflows/pmdruleset.xml"
-            SOURCE="shared baseline"
-          else
+          if [[ ! -f "${{ inputs.ruleset_path }}" ]]; then
+            echo "ruleset_path was set but file not found: ${{ inputs.ruleset_path }}" >&2
+            exit 1
+          fi
+          echo "path=${{ inputs.ruleset_path }}" >> "$GITHUB_OUTPUT"
+
+      - name: Use local pmdruleset.xml
+        id: ruleset_local
+        if: ${{ inputs.ruleset_path == '' && hashFiles('pmdruleset.xml') != '' }}
+        run: echo "path=pmdruleset.xml" >> "$GITHUB_OUTPUT"
+
+      - name: Use shared baseline ruleset
+        id: ruleset_baseline
+        if: ${{ inputs.ruleset_path == '' && hashFiles('pmdruleset.xml') == '' }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f .sf-workflows/pmdruleset.xml ]]; then
             echo "No ruleset found (input, local pmdruleset.xml, or shared baseline)." >&2
             exit 1
           fi
-          echo "path=$PATH_OUT" >> "$GITHUB_OUTPUT"
-          echo "Using ruleset: $PATH_OUT ($SOURCE)"
+          echo "path=.sf-workflows/pmdruleset.xml" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -116,11 +118,12 @@ jobs:
           key: pmd-${{ inputs.pmd_version }}
 
       - name: Run PMD
+        env:
+          PMD_VERSION: ${{ inputs.pmd_version }}
+          PMD_TARGET: ${{ inputs.pmd_target }}
+          RULESET: ${{ steps.ruleset_input.outputs.path || steps.ruleset_local.outputs.path || steps.ruleset_baseline.outputs.path }}
         run: |
           set -euo pipefail
-          PMD_VERSION="${{ inputs.pmd_version }}"
-          PMD_TARGET="${{ inputs.pmd_target }}"
-          RULESET="${{ steps.ruleset.outputs.path }}"
           PMD_DIR="tools/pmd-bin-${PMD_VERSION}"
           PMD_BIN="${PMD_DIR}/bin/pmd"
 
