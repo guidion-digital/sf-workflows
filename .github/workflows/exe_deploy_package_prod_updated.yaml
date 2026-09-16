@@ -20,7 +20,6 @@ jobs:
             SF_USERNAME: ${{ vars.SF_USERNAME_PROD }}
             SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID_PROD }}
             SF_DEVHUB_CLIENT_ID: ${{ vars.SF_DEVHUB_CLIENT_ID }}
-            SF_ALLOW_DEPENDENCY_MISMATCH: ${{ 'true' }}
         secrets:
             SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_PROD }}
             SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY }}
