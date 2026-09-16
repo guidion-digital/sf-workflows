@@ -42,6 +42,11 @@ on:
       SF_USERNAME:
         type: string
         required: false
+      SF_ALLOW_DEPENDENCY_MISMATCH:
+        description: Set to 'true' to make the dependency-tree conflict check non-blocking
+        type: string
+        required: false
+        default: 'false'
       SLACK_CHANNEL:
         description: Channel to notifify about a deployment 
         type: string
@@ -80,6 +85,7 @@ jobs:
       SF_LOGIN_URL: ${{ inputs.SF_LOGIN_URL }}
       SF_TESTLEVEL: ${{ inputs.SF_TESTLEVEL }}
       SF_USERNAME: ${{ inputs.SF_USERNAME }}
+      SF_ALLOW_DEPENDENCY_MISMATCH: ${{ inputs.SF_ALLOW_DEPENDENCY_MISMATCH }}
       SLACK_CHANNEL: ${{ inputs.SLACK_CHANNEL }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SF_CLIENT_ID: ${{ inputs.SF_CLIENT_ID }}
