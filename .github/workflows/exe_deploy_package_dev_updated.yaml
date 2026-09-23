@@ -9,7 +9,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-    uses: guidion-digital/sf-workflows/.github/workflows/deploy_package.yaml@1.13.0
+    uses: guidion-digital/sf-workflows/.github/workflows/deploy_package.yaml@v1
     with:
       environment_name: dev
       SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS_DEV }}
@@ -20,6 +20,7 @@ jobs:
       SF_USERNAME: ${{ vars.SF_USERNAME_DEV }}
       SF_CLIENT_ID: ${{ vars.SF_CLIENT_ID_DEV }}
       SF_DEVHUB_CLIENT_ID: ${{ vars.SF_DEVHUB_CLIENT_ID }}
+      SF_ALLOW_DEPENDENCY_MISMATCH: ${{ 'true' }}
     secrets:
       SF_CLIENT_KEY: ${{ secrets.SF_CLIENT_KEY_DEV }}
       SF_DEVHUB_CLIENT_KEY: ${{ secrets.SF_DEVHUB_CLIENT_KEY }}
