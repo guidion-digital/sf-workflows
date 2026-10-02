@@ -89,7 +89,7 @@ jobs:
     steps:
       - name: Cache Salesforce CLI
         id: cache-sf
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ runner.tool_cache }}/sf-cli
           key: sf-cli-stable-linux-x64
