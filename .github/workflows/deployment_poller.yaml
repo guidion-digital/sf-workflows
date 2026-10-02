@@ -11,7 +11,7 @@ name: Poll Salesforce Deployment Status
 #     poll:
 #       permissions:
 #         actions: write
-#         contents: read
+#         contents: write
 #       uses: guidion-digital/sf-workflows/.github/workflows/deployment_poller.yaml@v1
 #       secrets: inherit
 
@@ -25,7 +25,7 @@ on:
 
 permissions:
   actions: write
-  contents: read
+  contents: write
 
 concurrency:
   group: deployment-poller-${{ github.repository }}
