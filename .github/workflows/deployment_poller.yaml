@@ -155,6 +155,7 @@ jobs:
             echo "DEPLOY_TARGET_ORG=$(jq -r '.target_org' "$INFO")"
             echo "DEPLOY_SLACK_CHANNEL=$(jq -r '.slack_channel' "$INFO")"
             echo "DEPLOY_SLACK_THREAD_TS=$(jq -r '.slack_thread_ts // empty' "$INFO")"
+            echo "DEPLOY_COMMIT_SHA=$(jq -r '.commit_sha // empty' "$INFO")"
           } >> "$GITHUB_ENV"
 
       - name: Authenticate to Salesforce
@@ -206,6 +207,19 @@ jobs:
 
           if [[ "$STATUS" =~ ^(Succeeded|Failed|Canceled)$ ]]; then
             echo "DELETE_ARTIFACT=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Update last-successfully-deployed tag
+        if: steps.check_status.outputs.status == 'Succeeded' && env.DEPLOY_COMMIT_SHA != ''
+        continue-on-error: true
+        run: |
+          TAG="deployed/${DEPLOY_ENVIRONMENT}"
+          SHA="$DEPLOY_COMMIT_SHA"
+          echo "Moving tag $TAG -> $SHA"
+          if gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/${{ github.repository }}/git/refs/tags/$TAG" -f sha="$SHA" -f force=true
+          else
+            gh api --method POST "repos/${{ github.repository }}/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA"
           fi
 
       - name: Flush cache
