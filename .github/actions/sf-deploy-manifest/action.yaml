@@ -37,6 +37,10 @@ inputs:
     description: Lightning base URL, used for the optional "Track in Salesforce" button
     required: false
     default: ''
+  sf_testlevel:
+    description: Salesforce test level for the async deploy (defaults to RunRelevantTests)
+    required: false
+    default: ''
 
 outputs:
   job_id:
@@ -174,10 +178,13 @@ runs:
       id: deploy
       shell: bash
       run: |
+        TEST_LEVEL="${{ inputs.sf_testlevel }}"
+        [ -z "$TEST_LEVEL" ] && TEST_LEVEL="RunRelevantTests"
+
         if [ "${{ inputs.deploy_mode }}" = "deletions" ]; then
           DEPLOY_OUTPUT=$(sf project deploy start \
             --metadata-dir destructiveChanges \
-            --test-level RunRelevantTests \
+            --test-level "$TEST_LEVEL" \
             --target-org "${{ inputs.environment_name }}" \
             --ignore-warnings \
             --async \
@@ -185,7 +192,7 @@ runs:
         else
           DEPLOY_OUTPUT=$(sf project deploy start \
             --manifest package/package.xml \
-            --test-level RunRelevantTests \
+            --test-level "$TEST_LEVEL" \
             --target-org "${{ inputs.environment_name }}" \
             --ignore-conflicts \
             --async \
@@ -201,6 +208,7 @@ runs:
 
         echo "Deployment started with Job ID: $JOB_ID"
         echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
+        echo "test_level=$TEST_LEVEL" >> "$GITHUB_OUTPUT"
 
     - name: Notify deployment started
       id: notify
@@ -211,6 +219,7 @@ runs:
         SF_BASE_URL: ${{ inputs.sf_base_url }}
       run: |
         JOB_ID="${{ steps.deploy.outputs.job_id }}"
+        TEST_LEVEL="${{ steps.deploy.outputs.test_level }}"
         BRANCH="${{ github.ref_name }}"
         ACTOR="${{ github.actor }}"
         COMMIT_SHA="${{ github.sha }}"
@@ -247,6 +256,7 @@ runs:
           --arg short_sha "$SHORT_SHA" \
           --arg actor "$ACTOR" \
           --arg job_id "$JOB_ID" \
+          --arg test_level "$TEST_LEVEL" \
           --arg run_url "$GITHUB_RUN_URL" \
           --argjson sf_button "$SF_BUTTON" \
           '{
@@ -264,7 +274,8 @@ runs:
                   {type: "mrkdwn", text: ("*Branch:*\n" + $branch)},
                   {type: "mrkdwn", text: ("*Commit:*\n<" + $commit_url + "|`" + $short_sha + "`>")},
                   {type: "mrkdwn", text: ("*Started by:*\n" + $actor)},
-                  {type: "mrkdwn", text: ("*Job ID:*\n`" + $job_id + "`")}
+                  {type: "mrkdwn", text: ("*Job ID:*\n`" + $job_id + "`")},
+                  {type: "mrkdwn", text: ("*Test Level:*\n" + $test_level)}
                 ]
               },
               {
