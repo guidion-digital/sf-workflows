@@ -44,6 +44,10 @@ on:
         description: Salesforce consumer key
         type: string
         required: false
+      sf_testlevel:
+        description: Salesforce test level for the async deploy
+        type: string
+        required: false
     secrets:
       SF_CLIENT_ID:
         description: Salesforce consumer key
@@ -170,6 +174,7 @@ jobs:
           slack_token: ${{ secrets.SLACK_TOKEN }}
           slack_channel: ${{ inputs.slack_channel }}
           sf_base_url: ${{ needs.generate-delta.outputs.sf_base_url }}
+          sf_testlevel: ${{ inputs.sf_testlevel }}
 
   deploy-deletions:
     needs: [generate-delta, deploy-additions]
@@ -202,6 +207,7 @@ jobs:
           slack_token: ${{ secrets.SLACK_TOKEN }}
           slack_channel: ${{ inputs.slack_channel }}
           sf_base_url: ${{ needs.generate-delta.outputs.sf_base_url }}
+          sf_testlevel: ${{ inputs.sf_testlevel }}
 
   track-deployment:
     needs: [generate-delta, deploy-additions, deploy-deletions]

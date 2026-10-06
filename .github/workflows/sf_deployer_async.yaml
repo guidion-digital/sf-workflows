@@ -159,6 +159,7 @@ jobs:
           fi
           echo "Deployment started with Job ID: $JOB_ID"
           echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
+          echo "test_level=$TEST_LEVEL" >> "$GITHUB_OUTPUT"
           
           # Write deployment info for the poller workflow
           # Note: PR number is only available when triggered by a pull_request event
@@ -196,6 +197,7 @@ jobs:
           SF_BASE_URL_PROD: ${{ vars.SF_BASE_URL_PROD }}
         run: |
           JOB_ID="${{ steps.deploy.outputs.job_id }}"
+          TEST_LEVEL="${{ steps.deploy.outputs.test_level }}"
           ENVIRONMENT="${{ inputs.environment_name }}"
           BRANCH="${{ inputs.branch }}"
           ACTOR="${{ github.actor }}"
@@ -241,6 +243,7 @@ jobs:
             --arg short_sha "$SHORT_SHA" \
             --arg actor "$ACTOR" \
             --arg job_id "$JOB_ID" \
+            --arg test_level "$TEST_LEVEL" \
             --arg run_url "$GITHUB_RUN_URL" \
             --arg run_attempt "$RUN_ATTEMPT" \
             --argjson pr_field "$PR_FIELD" \
@@ -269,7 +272,8 @@ jobs:
                     + [
                       {type: "mrkdwn", text: ("*Commit:*\n<" + $commit_url + "|`" + $short_sha + "`>")},
                       {type: "mrkdwn", text: ("*Started by:*\n" + $actor)},
-                      {type: "mrkdwn", text: ("*Job ID:*\n`" + $job_id + "`")}
+                      {type: "mrkdwn", text: ("*Job ID:*\n`" + $job_id + "`")},
+                      {type: "mrkdwn", text: ("*Test Level:*\n" + $test_level)}
                     ]
                   )
                 },
