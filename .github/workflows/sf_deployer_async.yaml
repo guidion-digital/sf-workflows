@@ -233,7 +233,7 @@ jobs:
 
           PAYLOAD=$(jq -n \
             --arg channel "$SLACK_CHANNEL" \
-            --arg fallback "Salesforce deployment started in $ENVIRONMENT" \
+            --arg fallback "Salesforce deployment (full) started in $ENVIRONMENT" \
             --arg env "$ENVIRONMENT" \
             --arg repo_name "$REPO_NAME" \
             --arg branch "$BRANCH" \
@@ -253,8 +253,8 @@ jobs:
                   type: "section",
                   text: {type: "mrkdwn", text: (
                     if ($run_attempt | tonumber) > 1
-                    then "🔄 *Salesforce Deployment Restarted* (attempt " + $run_attempt + ")"
-                    else "🚀 *Salesforce Deployment Started*"
+                    then "🔄 *Salesforce Deployment Restarted (Full)* (attempt " + $run_attempt + ")"
+                    else "🚀 *Salesforce Deployment Started (Full)*"
                     end
                   )}
                 },
