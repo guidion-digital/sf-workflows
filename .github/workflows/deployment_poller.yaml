@@ -134,10 +134,24 @@ jobs:
           jq '.' "$INFO"
 
           MISSING=""
-          for FIELD in job_id environment target_org slack_channel; do
+          for FIELD in environment target_org slack_channel; do
             VALUE=$(jq -r --arg f "$FIELD" '.[$f] // empty' "$INFO")
             [ -z "$VALUE" ] && MISSING="$MISSING $FIELD"
           done
+
+          # Normalize to a `legs` array. sf_deployer_delta.yaml's track-deployment
+          # job writes a `legs` array directly. sf_deployer_async.yaml instead
+          # writes a legacy flat record (top-level job_id, no `legs` array) —
+          # treat that whole record as a single, still-unresolved leg so the
+          # rest of this job can handle both shapes identically.
+          jq -c '
+            if has("legs") then .legs
+            else [{mode: "deploy", job_id: .job_id, thread_ts: (.slack_thread_ts // ""), resolved: false}]
+            end
+          ' "$INFO" > legs.json
+
+          LEG_COUNT=$(jq 'length' legs.json)
+          [ "$LEG_COUNT" -eq 0 ] && MISSING="$MISSING legs"
 
           if [ -n "$MISSING" ]; then
             echo "::error::Missing required fields:$MISSING"
@@ -147,14 +161,14 @@ jobs:
           fi
 
           echo "valid=true" >> "$GITHUB_OUTPUT"
+          echo "Normalized legs:"
+          jq '.' legs.json
 
           {
-            echo "DEPLOY_JOB_ID=$(jq -r '.job_id' "$INFO")"
             echo "DEPLOY_ENVIRONMENT=$(jq -r '.environment' "$INFO")"
             echo "DEPLOY_ENV_UPPER=$(jq -r '.environment | ascii_upcase' "$INFO")"
             echo "DEPLOY_TARGET_ORG=$(jq -r '.target_org' "$INFO")"
             echo "DEPLOY_SLACK_CHANNEL=$(jq -r '.slack_channel' "$INFO")"
-            echo "DEPLOY_SLACK_THREAD_TS=$(jq -r '.slack_thread_ts // empty' "$INFO")"
             echo "DEPLOY_COMMIT_SHA=$(jq -r '.commit_sha // empty' "$INFO")"
           } >> "$GITHUB_ENV"
 
@@ -185,32 +199,168 @@ jobs:
             --alias "$DEPLOY_TARGET_ORG"
           rm -f jwt-key.key
 
-      - name: Check deployment status
-        id: check_status
+      - name: Poll unresolved legs and notify
+        id: poll
         if: steps.parse.outputs.valid == 'true'
         run: |
-          echo "Checking deployment status for Job ID: $DEPLOY_JOB_ID"
-          sf project deploy report \
-            --job-id "$DEPLOY_JOB_ID" \
-            --target-org "$DEPLOY_TARGET_ORG" \
-            --json > deploy_report.json || true
+          LEG_COUNT=$(jq 'length' legs.json)
+          ALL_RESOLVED=true
+          ALL_SUCCEEDED=true
 
-          STATUS=$(jq -r '.result.status // .status // "Unknown"' deploy_report.json 2>/dev/null) || STATUS="Unknown"
-          echo "Deployment status: $STATUS"
+          for i in $(seq 0 $((LEG_COUNT - 1))); do
+            LEG=$(jq -c ".[$i]" legs.json)
+            RESOLVED=$(echo "$LEG" | jq -r '.resolved')
+            JOB_ID=$(echo "$LEG" | jq -r '.job_id // empty')
+            MODE=$(echo "$LEG" | jq -r '.mode // "deploy"')
+            THREAD_TS=$(echo "$LEG" | jq -r '.thread_ts // empty')
 
-          if [ "$STATUS" = "Unknown" ]; then
-            echo "::warning::Could not determine deployment status. Raw SF CLI output:"
-            cat deploy_report.json
-          fi
+            # Already resolved in a previous poll cycle — don't re-notify, just
+            # fold its stored status into the aggregate.
+            if [ "$RESOLVED" = "true" ]; then
+              STATUS=$(echo "$LEG" | jq -r '.status // empty')
+              [ "$STATUS" != "Succeeded" ] && ALL_SUCCEEDED=false
+              continue
+            fi
 
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+            if [ -z "$JOB_ID" ]; then
+              echo "::warning::Leg $i ($MODE) has no job_id but is unresolved — marking Failed"
+              LEG=$(echo "$LEG" | jq '.resolved = true | .status = "Failed"')
+              jq -c --argjson leg "$LEG" ".[$i] = \$leg" legs.json > legs.json.tmp && mv legs.json.tmp legs.json
+              ALL_SUCCEEDED=false
+              continue
+            fi
 
-          if [[ "$STATUS" =~ ^(Succeeded|Failed|Canceled)$ ]]; then
+            echo "Checking deployment status for leg $i ($MODE), Job ID: $JOB_ID"
+            sf project deploy report \
+              --job-id "$JOB_ID" \
+              --target-org "$DEPLOY_TARGET_ORG" \
+              --json > "deploy_report_${i}.json" || true
+
+            STATUS=$(jq -r '.result.status // .status // "Unknown"' "deploy_report_${i}.json" 2>/dev/null) || STATUS="Unknown"
+            echo "Leg $i ($MODE) status: $STATUS"
+
+            if [[ ! "$STATUS" =~ ^(Succeeded|Failed|Canceled)$ ]]; then
+              echo "Leg $i ($MODE) still in progress ($STATUS)"
+              ALL_RESOLVED=false
+              continue
+            fi
+
+            # Terminal — send this leg's own completion Slack message into its
+            # own thread, independent of any sibling leg.
+            NOTIFY_TYPE="$STATUS"
+            case "$NOTIFY_TYPE" in
+              Succeeded)
+                TITLE="✅ *Salesforce Deployment Succeeded*"
+                FALLBACK="Salesforce deployment succeeded in $DEPLOY_ENVIRONMENT"
+                ;;
+              Failed)
+                TITLE="❌ *Salesforce Deployment Failed*"
+                FALLBACK="Salesforce deployment failed in $DEPLOY_ENVIRONMENT"
+                ;;
+              Canceled)
+                TITLE="🚫 *Salesforce Deployment Canceled*"
+                FALLBACK="Salesforce deployment canceled in $DEPLOY_ENVIRONMENT"
+                ;;
+            esac
+
+            EXTRA_BLOCKS="[]"
+            if [ "$NOTIFY_TYPE" = "Failed" ]; then
+              REPORT="deploy_report_${i}.json"
+              COMPONENT_FAILURES=$(jq -r '
+                [(.result.details.componentFailures // [])
+                 | if type == "array" then .[] else . end
+                 | "• \(.componentType): \(.fullName) — \(.problem // "unknown error")"]
+                | .[0:10] | join("\n")' "$REPORT" 2>/dev/null || echo "")
+
+              TEST_FAILURES=$(jq -r '
+                [(.result.details.runTestResult.failures // [])
+                 | if type == "array" then .[] else . end
+                 | "• \(.name).\(.methodName): \(.message // "test failed")"]
+                | .[0:5] | join("\n")' "$REPORT" 2>/dev/null || echo "")
+
+              COVERAGE_WARNINGS=$(jq -r '
+                [(.result.details.runTestResult.codeCoverageWarnings // [])
+                 | if type == "array" then .[] else . end
+                 | "• \(.name // "Org-wide"): \(.message)"]
+                | .[0:10] | join("\n")' "$REPORT" 2>/dev/null || echo "")
+
+              GENERAL_ERROR=$(jq -r '.result.errorMessage // .message // empty' "$REPORT" 2>/dev/null || echo "")
+
+              NL=$'\n'
+              ERROR_MESSAGE=""
+              [ -n "$COMPONENT_FAILURES" ] && ERROR_MESSAGE="Component Failures:${NL}${COMPONENT_FAILURES}"
+              if [ -n "$TEST_FAILURES" ]; then
+                [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="${ERROR_MESSAGE}${NL}${NL}"
+                ERROR_MESSAGE="${ERROR_MESSAGE}Test Failures:${NL}${TEST_FAILURES}"
+              fi
+              if [ -n "$COVERAGE_WARNINGS" ]; then
+                [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="${ERROR_MESSAGE}${NL}${NL}"
+                ERROR_MESSAGE="${ERROR_MESSAGE}Test Coverage Failures:${NL}${COVERAGE_WARNINGS}"
+              fi
+              if [ -n "$GENERAL_ERROR" ] && [ "$GENERAL_ERROR" != "null" ]; then
+                [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="${ERROR_MESSAGE}${NL}${NL}"
+                ERROR_MESSAGE="${ERROR_MESSAGE}${GENERAL_ERROR}"
+              fi
+              [ -z "$ERROR_MESSAGE" ] && ERROR_MESSAGE="No specific error details available. Check Salesforce deployment status for more info."
+              ERROR_MESSAGE=$(printf '%.1500s' "$ERROR_MESSAGE")
+
+              # Pure coverage failures (no component/test-method failures) are a distinct
+              # class from compile/test-method failures — label the Slack header accordingly.
+              if [ -z "$COMPONENT_FAILURES" ] && [ -z "$TEST_FAILURES" ] && [ -n "$COVERAGE_WARNINGS" ]; then
+                TITLE="⚠️ *Salesforce Deployment Failed — Code Coverage*"
+              fi
+
+              EXTRA_BLOCKS=$(jq -n --arg error_msg "$ERROR_MESSAGE" \
+                '[
+                  {type: "section", text: {type: "mrkdwn", text: ("*Error Details:*\n```" + $error_msg + "```")}},
+                  {type: "divider"},
+                  {type: "section", text: {type: "mrkdwn", text: "*🔄 To retry:* Click \u0027View Workflow\u0027 in the original message, then click *Re-run all jobs*"}}
+                ]')
+            fi
+
+            # Built after the Failed block above so a pure-coverage failure can override $TITLE.
+            HEADER=$(jq -n --arg title "$TITLE" \
+              '{type: "section", text: {type: "mrkdwn", text: $title}}')
+
+            BLOCKS=$(jq -n \
+              --argjson header "$HEADER" \
+              --argjson extra "$EXTRA_BLOCKS" \
+              '[$header] + $extra')
+
+            PAYLOAD=$(jq -n \
+              --arg channel "$DEPLOY_SLACK_CHANNEL" \
+              --arg fallback "$FALLBACK" \
+              --arg thread_ts "${THREAD_TS:-}" \
+              --argjson blocks "$BLOCKS" \
+              '({
+                channel: $channel,
+                text: $fallback,
+                blocks: $blocks
+              } + if $thread_ts != "" then {thread_ts: $thread_ts} else {} end)')
+
+            curl -s -X POST https://slack.com/api/chat.postMessage \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $SLACK_TOKEN" \
+              -d "$PAYLOAD" > /dev/null
+
+            LEG=$(echo "$LEG" | jq --arg status "$STATUS" '.resolved = true | .status = $status')
+            jq -c --argjson leg "$LEG" ".[$i] = \$leg" legs.json > legs.json.tmp && mv legs.json.tmp legs.json
+
+            [ "$STATUS" != "Succeeded" ] && ALL_SUCCEEDED=false
+          done
+
+          echo "all_resolved=$ALL_RESOLVED" >> "$GITHUB_OUTPUT"
+          echo "all_succeeded=$ALL_SUCCEEDED" >> "$GITHUB_OUTPUT"
+
+          if [ "$ALL_RESOLVED" = "true" ]; then
             echo "DELETE_ARTIFACT=true" >> "$GITHUB_ENV"
           fi
 
+          echo "Final legs state:"
+          jq '.' legs.json
+
       - name: Update last-successfully-deployed tag
-        if: steps.check_status.outputs.status == 'Succeeded' && env.DEPLOY_COMMIT_SHA != ''
+        if: steps.poll.outputs.all_resolved == 'true' && steps.poll.outputs.all_succeeded == 'true' && env.DEPLOY_COMMIT_SHA != ''
         continue-on-error: true
         run: |
           TAG="deployed/${DEPLOY_ENVIRONMENT}"
@@ -223,7 +373,7 @@ jobs:
           fi
 
       - name: Flush cache
-        if: steps.check_status.outputs.status == 'Succeeded'
+        if: steps.poll.outputs.all_resolved == 'true' && steps.poll.outputs.all_succeeded == 'true'
         env:
           FLUSH_CACHE_URL_ACC: ${{ vars.FLUSH_CACHE_URL_ACC }}
           FLUSH_CACHE_URL_PROD: ${{ vars.FLUSH_CACHE_URL_PROD }}
@@ -250,111 +400,21 @@ jobs:
             -H "x-api-key: $CACHE_KEY" \
             -d "{\"userId\": \"$USER_ID_FOR_CACHE_FLUSH\"}" || echo "::warning::Cache flush failed (non-critical)"
 
-      - name: Send Slack notification
-        continue-on-error: true
-        if: |
-          steps.check_status.outputs.status == 'Succeeded' ||
-          steps.check_status.outputs.status == 'Failed' ||
-          steps.check_status.outputs.status == 'Canceled'
+      - name: Rebuild deployment info for still-pending legs
+        if: steps.parse.outputs.valid == 'true' && steps.poll.outputs.all_resolved != 'true'
         run: |
-          NOTIFY_TYPE="${{ steps.check_status.outputs.status }}"
-          echo "Sending $NOTIFY_TYPE notification..."
+          jq --slurpfile legs legs.json '.legs = $legs[0]' artifact_temp/deployment-info.json > deployment-info.json
+          echo "Updated deployment info (legs still pending):"
+          cat deployment-info.json
 
-          case "$NOTIFY_TYPE" in
-            Succeeded)
-              TITLE="✅ *Salesforce Deployment Succeeded*"
-              FALLBACK="Salesforce deployment succeeded in $DEPLOY_ENVIRONMENT"
-              ;;
-            Failed)
-              TITLE="❌ *Salesforce Deployment Failed*"
-              FALLBACK="Salesforce deployment failed in $DEPLOY_ENVIRONMENT"
-              ;;
-            Canceled)
-              TITLE="🚫 *Salesforce Deployment Canceled*"
-              FALLBACK="Salesforce deployment canceled in $DEPLOY_ENVIRONMENT"
-              ;;
-          esac
-
-          EXTRA_BLOCKS="[]"
-          if [ "$NOTIFY_TYPE" = "Failed" ]; then
-            COMPONENT_FAILURES=$(jq -r '
-              [(.result.details.componentFailures // [])
-               | if type == "array" then .[] else . end
-               | "• \(.componentType): \(.fullName) — \(.problem // "unknown error")"]
-              | .[0:10] | join("\n")' deploy_report.json 2>/dev/null || echo "")
-
-            TEST_FAILURES=$(jq -r '
-              [(.result.details.runTestResult.failures // [])
-               | if type == "array" then .[] else . end
-               | "• \(.name).\(.methodName): \(.message // "test failed")"]
-              | .[0:5] | join("\n")' deploy_report.json 2>/dev/null || echo "")
-
-            COVERAGE_WARNINGS=$(jq -r '
-              [(.result.details.runTestResult.codeCoverageWarnings // [])
-               | if type == "array" then .[] else . end
-               | "• \(.name // "Org-wide"): \(.message)"]
-              | .[0:10] | join("\n")' deploy_report.json 2>/dev/null || echo "")
-
-            GENERAL_ERROR=$(jq -r '.result.errorMessage // .message // empty' deploy_report.json 2>/dev/null || echo "")
-
-            NL=$'\n'
-            ERROR_MESSAGE=""
-            [ -n "$COMPONENT_FAILURES" ] && ERROR_MESSAGE="Component Failures:${NL}${COMPONENT_FAILURES}"
-            if [ -n "$TEST_FAILURES" ]; then
-              [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="${ERROR_MESSAGE}${NL}${NL}"
-              ERROR_MESSAGE="${ERROR_MESSAGE}Test Failures:${NL}${TEST_FAILURES}"
-            fi
-            if [ -n "$COVERAGE_WARNINGS" ]; then
-              [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="${ERROR_MESSAGE}${NL}${NL}"
-              ERROR_MESSAGE="${ERROR_MESSAGE}Test Coverage Failures:${NL}${COVERAGE_WARNINGS}"
-            fi
-            if [ -n "$GENERAL_ERROR" ] && [ "$GENERAL_ERROR" != "null" ]; then
-              [ -n "$ERROR_MESSAGE" ] && ERROR_MESSAGE="${ERROR_MESSAGE}${NL}${NL}"
-              ERROR_MESSAGE="${ERROR_MESSAGE}${GENERAL_ERROR}"
-            fi
-            [ -z "$ERROR_MESSAGE" ] && ERROR_MESSAGE="No specific error details available. Check Salesforce deployment status for more info."
-            ERROR_MESSAGE=$(printf '%.1500s' "$ERROR_MESSAGE")
-
-            # Pure coverage failures (no component/test-method failures) are a distinct
-            # class from compile/test-method failures — label the Slack header accordingly.
-            if [ -z "$COMPONENT_FAILURES" ] && [ -z "$TEST_FAILURES" ] && [ -n "$COVERAGE_WARNINGS" ]; then
-              TITLE="⚠️ *Salesforce Deployment Failed — Code Coverage*"
-            fi
-
-            EXTRA_BLOCKS=$(jq -n --arg error_msg "$ERROR_MESSAGE" \
-              '[
-                {type: "section", text: {type: "mrkdwn", text: ("*Error Details:*\n```" + $error_msg + "```")}},
-                {type: "divider"},
-                {type: "section", text: {type: "mrkdwn", text: "*🔄 To retry:* Click \u0027View Workflow\u0027 in the original message, then click *Re-run all jobs*"}}
-              ]')
-          fi
-
-          # Built after the Failed block above so a pure-coverage failure can override $TITLE.
-          HEADER=$(jq -n --arg title "$TITLE" \
-            '{type: "section", text: {type: "mrkdwn", text: $title}}')
-
-          BLOCKS=$(jq -n \
-            --argjson header "$HEADER" \
-            --argjson extra "$EXTRA_BLOCKS" \
-            '[$header] + $extra')
-
-          # -- Send --
-
-          PAYLOAD=$(jq -n \
-            --arg channel "$DEPLOY_SLACK_CHANNEL" \
-            --arg fallback "$FALLBACK" \
-            --arg thread_ts "${DEPLOY_SLACK_THREAD_TS:-}" \
-            --argjson blocks "$BLOCKS" \
-            '({
-              channel: $channel,
-              text: $fallback,
-              blocks: $blocks
-            } + if $thread_ts != "" then {thread_ts: $thread_ts} else {} end)')
-
-          curl -s -X POST https://slack.com/api/chat.postMessage \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $SLACK_TOKEN" \
-            -d "$PAYLOAD"
+      - name: Re-upload deployment info artifact
+        if: steps.parse.outputs.valid == 'true' && steps.poll.outputs.all_resolved != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: deployment-info.json
+          overwrite: true
+          retention-days: 1
 
       - name: Delete artifact
         if: always() && env.DELETE_ARTIFACT == 'true'
@@ -365,4 +425,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -rf artifact_temp artifact.zip deploy_report.json
+        run: rm -rf artifact_temp artifact.zip deploy_report_*.json legs.json legs.json.tmp deployment-info.json

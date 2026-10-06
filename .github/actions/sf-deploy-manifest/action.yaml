@@ -1,11 +1,12 @@
 name: Deploy a Salesforce delta manifest
 description: >
   Shared steps for one leg (additions or deletions) of a delta deploy:
-  authenticate, best-effort relevant-test preview, async deploy, write
-  deployment-info.json for the shared poller, send the Slack "started"
-  notification, and upload the pending-deployment artifact. Used by
-  sf_deployer_delta.yaml for both its deploy-additions and deploy-deletions
-  jobs so that logic only lives in one place.
+  authenticate, best-effort relevant-test preview, async deploy, and send
+  the Slack "started" notification. The calling workflow's track-deployment
+  job assembles the combined deployment-info.json for the shared poller
+  from this action's job_id/thread_ts outputs. Used by sf_deployer_delta.yaml
+  for both its deploy-additions and deploy-deletions jobs so that logic only
+  lives in one place.
 
 inputs:
   deploy_mode:
@@ -36,15 +37,14 @@ inputs:
     description: Lightning base URL, used for the optional "Track in Salesforce" button
     required: false
     default: ''
-  artifact_suffix:
-    description: Appended to the pending-deployment artifact name (e.g. "-deletions")
-    required: false
-    default: ''
 
 outputs:
   job_id:
     description: Salesforce async deploy job id
     value: ${{ steps.deploy.outputs.job_id }}
+  thread_ts:
+    description: Slack thread_ts of the "started" notification, for the poller to reply into
+    value: ${{ steps.notify.outputs.thread_ts }}
 
 runs:
   using: composite
@@ -175,7 +175,6 @@ runs:
       shell: bash
       run: |
         if [ "${{ inputs.deploy_mode }}" = "deletions" ]; then
-          SOURCE_LABEL="destructiveChanges"
           DEPLOY_OUTPUT=$(sf project deploy start \
             --metadata-dir destructiveChanges \
             --test-level RunRelevantTests \
@@ -184,7 +183,6 @@ runs:
             --async \
             --json)
         else
-          SOURCE_LABEL="package/package.xml"
           DEPLOY_OUTPUT=$(sf project deploy start \
             --manifest package/package.xml \
             --test-level RunRelevantTests \
@@ -203,30 +201,6 @@ runs:
 
         echo "Deployment started with Job ID: $JOB_ID"
         echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
-
-        # Write deployment info in the shape deployment_poller.yaml already expects,
-        # so the existing poller picks this up and sends the Succeeded/Failed Slack message.
-        jq -n \
-          --arg job_id "$JOB_ID" \
-          --arg environment "${{ inputs.environment_name }}" \
-          --arg target_org "${{ inputs.environment_name }}" \
-          --arg test_level "RunRelevantTests" \
-          --arg source_dir "$SOURCE_LABEL" \
-          --arg commit_sha "${{ github.sha }}" \
-          --arg branch "${{ github.ref_name }}" \
-          --arg actor "${{ github.actor }}" \
-          --arg slack_channel "${{ inputs.slack_channel }}" \
-          --arg github_run_id "${{ github.run_id }}" \
-          --arg github_run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-          --arg github_repository "${{ github.repository }}" \
-          --arg github_server_url "${{ github.server_url }}" \
-          --arg pr_number "" \
-          --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-          '{job_id: $job_id, environment: $environment, target_org: $target_org, test_level: $test_level, source_dir: $source_dir, commit_sha: $commit_sha, branch: $branch, actor: $actor, slack_channel: $slack_channel, github_run_id: $github_run_id, github_run_url: $github_run_url, github_repository: $github_repository, github_server_url: $github_server_url, pr_number: $pr_number, started_at: $started_at}' \
-          > deployment-info.json
-
-        echo "Deployment info saved to deployment-info.json"
-        cat deployment-info.json
 
     - name: Notify deployment started
       id: notify
@@ -324,18 +298,3 @@ runs:
           echo "Slack thread_ts: $THREAD_TS"
           echo "thread_ts=$THREAD_TS" >> "$GITHUB_OUTPUT"
         fi
-
-    - name: Add Slack thread context to deployment info
-      shell: bash
-      if: steps.notify.outputs.thread_ts != ''
-      run: |
-        jq --arg ts "${{ steps.notify.outputs.thread_ts }}" \
-          '. + {slack_thread_ts: $ts}' deployment-info.json > tmp.json
-        mv tmp.json deployment-info.json
-
-    - name: Upload deployment info artifact
-      uses: actions/upload-artifact@v7
-      with:
-        name: pending-deployment-${{ github.run_id }}${{ inputs.artifact_suffix }}
-        path: deployment-info.json
-        retention-days: 1
