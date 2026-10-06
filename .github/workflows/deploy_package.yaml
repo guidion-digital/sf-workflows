@@ -116,7 +116,7 @@ jobs:
         run: npx semantic-release -e @gdn/semantic-release-sfdx-config
       - name: Upload Apex test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: apex-test-results
           path: tests
