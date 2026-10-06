@@ -1,0 +1,300 @@
+name: Deploy a Salesforce delta manifest
+description: >
+  Shared steps for one leg (additions or deletions) of a delta deploy:
+  authenticate, best-effort relevant-test preview, async deploy, and send
+  the Slack "started" notification. The calling workflow's track-deployment
+  job assembles the combined deployment-info.json for the shared poller
+  from this action's job_id/thread_ts outputs. Used by sf_deployer_delta.yaml
+  for both its deploy-additions and deploy-deletions jobs so that logic only
+  lives in one place.
+
+inputs:
+  deploy_mode:
+    description: "'additions' or 'deletions'"
+    required: true
+  environment_name:
+    description: Environment/org alias to deploy to (e.g. dev, acc)
+    required: true
+  sf_login_url:
+    description: Salesforce login URL
+    required: true
+  sf_username:
+    description: Salesforce username
+    required: true
+  sf_client_id:
+    description: Salesforce consumer key
+    required: true
+  sf_client_key:
+    description: Base64-encoded Salesforce JWT key (secret, passed through by the caller)
+    required: true
+  slack_token:
+    description: Slack token (secret, passed through by the caller)
+    required: true
+  slack_channel:
+    description: Slack channel to notify
+    required: true
+  sf_base_url:
+    description: Lightning base URL, used for the optional "Track in Salesforce" button
+    required: false
+    default: ''
+
+outputs:
+  job_id:
+    description: Salesforce async deploy job id
+    value: ${{ steps.deploy.outputs.job_id }}
+  thread_ts:
+    description: Slack thread_ts of the "started" notification, for the poller to reply into
+    value: ${{ steps.notify.outputs.thread_ts }}
+
+runs:
+  using: composite
+  steps:
+    - name: Authenticate
+      shell: bash
+      run: |
+        echo "Authenticating to Salesforce org..."
+        printf '%s' "${{ inputs.sf_client_key }}" | base64 -d > jwt-key.key
+        sf org login jwt \
+          --instance-url "${{ inputs.sf_login_url }}" \
+          --username "${{ inputs.sf_username }}" \
+          --client-id "${{ inputs.sf_client_id }}" \
+          --jwt-key-file jwt-key.key \
+          --alias "${{ inputs.environment_name }}"
+        rm jwt-key.key
+
+    - name: Preview expected relevant tests
+      id: preview_tests
+      shell: bash
+      continue-on-error: true
+      run: |
+        echo "Previewing expected relevant tests (best-effort, based on existing coverage links)..."
+
+        if [ "${{ inputs.deploy_mode }}" = "deletions" ]; then
+          MANIFEST="destructiveChanges/destructiveChanges.xml"
+        else
+          MANIFEST="package/package.xml"
+        fi
+
+        extract_members() {
+          local file="$1" type="$2"
+          awk -v type="$type" '
+            /<types>/ { in_block=1; members=""; name=""; next }
+            /<\/types>/ {
+              if (in_block && name == type && members != "") print members
+              in_block=0; next
+            }
+            in_block && /<members>/ {
+              line=$0
+              gsub(/.*<members>/,"",line)
+              gsub(/<\/members>.*/,"",line)
+              members = members (members=="" ? "" : "\n") line
+            }
+            in_block && /<name>/ {
+              line=$0
+              gsub(/.*<name>/,"",line)
+              gsub(/<\/name>.*/,"",line)
+              name=line
+            }
+          ' "$file"
+        }
+
+        to_in_clause() {
+          jq -R -s -r 'split("\n") | map(select(length > 0)) | map("\u0027" + . + "\u0027") | join(",")'
+        }
+
+        APEX_CLASSES=$(extract_members "$MANIFEST" ApexClass)
+        APEX_TRIGGERS=$(extract_members "$MANIFEST" ApexTrigger)
+
+        if [ -z "$APEX_CLASSES" ] && [ -z "$APEX_TRIGGERS" ]; then
+          echo "No ApexClass/ApexTrigger members in $MANIFEST — nothing to preview. (RunRelevantTests on a pure-destructive deploy may run 0 tests.)"
+          exit 0
+        fi
+
+        CLASS_ID_MAP="[]"
+        if [ -n "$APEX_CLASSES" ]; then
+          CLASS_IN=$(printf '%s\n' "$APEX_CLASSES" | to_in_clause)
+          CLASS_RESULT=$(sf data query --use-tooling-api --target-org "${{ inputs.environment_name }}" --json \
+            -q "SELECT Id, Name, NamespacePrefix FROM ApexClass WHERE Name IN ($CLASS_IN)" 2>/dev/null || echo '{"result":{"records":[]}}')
+          CLASS_ID_MAP=$(echo "$CLASS_RESULT" | jq -c '[.result.records[] | {id: .Id, name: .Name, namespace: (.NamespacePrefix // "(none)")}]')
+        fi
+
+        TRIGGER_ID_MAP="[]"
+        if [ -n "$APEX_TRIGGERS" ]; then
+          TRIGGER_IN=$(printf '%s\n' "$APEX_TRIGGERS" | to_in_clause)
+          TRIGGER_RESULT=$(sf data query --use-tooling-api --target-org "${{ inputs.environment_name }}" --json \
+            -q "SELECT Id, Name, NamespacePrefix FROM ApexTrigger WHERE Name IN ($TRIGGER_IN)" 2>/dev/null || echo '{"result":{"records":[]}}')
+          TRIGGER_ID_MAP=$(echo "$TRIGGER_RESULT" | jq -c '[.result.records[] | {id: .Id, name: .Name, namespace: (.NamespacePrefix // "(none)")}]')
+        fi
+
+        ALL_TARGETS=$(jq -c -n --argjson a "$CLASS_ID_MAP" --argjson b "$TRIGGER_ID_MAP" '$a + $b')
+        TARGET_COUNT=$(echo "$ALL_TARGETS" | jq 'length')
+
+        if [ "$TARGET_COUNT" -eq 0 ]; then
+          echo "Could not resolve any ApexClass/ApexTrigger Ids via the Tooling API (components may be newly created or already deleted) — cannot preview coverage links."
+          exit 0
+        fi
+
+        TARGET_IDS=$(echo "$ALL_TARGETS" | jq -r '.[].id' | to_in_clause)
+
+        COVERAGE_RESULT=$(sf data query --use-tooling-api --target-org "${{ inputs.environment_name }}" --json \
+          -q "SELECT ApexTestClassId, TestMethodName, ApexClassOrTriggerId FROM ApexCodeCoverage WHERE ApexClassOrTriggerId IN ($TARGET_IDS)" 2>/dev/null || echo '{"result":{"records":[]}}')
+
+        TEST_CLASS_IDS=$(echo "$COVERAGE_RESULT" | jq -r '[.result.records[].ApexTestClassId] | unique | .[]' 2>/dev/null)
+
+        TEST_CLASS_MAP="[]"
+        if [ -n "$TEST_CLASS_IDS" ]; then
+          TEST_CLASS_IN=$(printf '%s\n' "$TEST_CLASS_IDS" | to_in_clause)
+          TEST_CLASS_RESULT=$(sf data query --use-tooling-api --target-org "${{ inputs.environment_name }}" --json \
+            -q "SELECT Id, Name FROM ApexClass WHERE Id IN ($TEST_CLASS_IN)" 2>/dev/null || echo '{"result":{"records":[]}}')
+          TEST_CLASS_MAP=$(echo "$TEST_CLASS_RESULT" | jq -c '[.result.records[] | {id: .Id, name: .Name}]')
+        fi
+
+        echo "Expected relevant tests (based on existing coverage links, best-effort — Salesforce computes the actual list server-side):"
+        echo "$ALL_TARGETS" | jq -c '.[]' | while read -r TARGET; do
+          TARGET_ID=$(echo "$TARGET" | jq -r '.id')
+          TARGET_NAME=$(echo "$TARGET" | jq -r '.name')
+          TARGET_NAMESPACE=$(echo "$TARGET" | jq -r '.namespace')
+          TEST_NAMES=$(jq -n --argjson coverage "$COVERAGE_RESULT" --argjson testmap "$TEST_CLASS_MAP" --arg tid "$TARGET_ID" -r '
+            ([$coverage.result.records[] | select(.ApexClassOrTriggerId == $tid) | .ApexTestClassId] | unique) as $ids
+            | [$ids[] as $id | ($testmap[] | select(.id == $id) | .name)] | unique | join(", ")
+          ')
+          if [ -z "$TEST_NAMES" ]; then
+            echo "  $TARGET_NAME [$TARGET_NAMESPACE] -> (no existing coverage link found — may run 0 tests for this class)"
+          else
+            echo "  $TARGET_NAME [$TARGET_NAMESPACE] -> $TEST_NAMES"
+          fi
+        done
+
+    # deploy-deletions needs: [generate-delta, deploy-additions] guarantees the
+    # additive deploy request was already submitted (accepted and queued by
+    # Salesforce) before this one is submitted. Salesforce executes queued
+    # deploys for an org in submission order, so no polling for additive
+    # completion is required to keep deletions ordered after additions.
+    - name: Deploy (async)
+      id: deploy
+      shell: bash
+      run: |
+        if [ "${{ inputs.deploy_mode }}" = "deletions" ]; then
+          DEPLOY_OUTPUT=$(sf project deploy start \
+            --metadata-dir destructiveChanges \
+            --test-level RunRelevantTests \
+            --target-org "${{ inputs.environment_name }}" \
+            --ignore-warnings \
+            --async \
+            --json)
+        else
+          DEPLOY_OUTPUT=$(sf project deploy start \
+            --manifest package/package.xml \
+            --test-level RunRelevantTests \
+            --target-org "${{ inputs.environment_name }}" \
+            --ignore-conflicts \
+            --async \
+            --json)
+        fi
+
+        JOB_ID=$(echo "$DEPLOY_OUTPUT" | jq -r '.result.id')
+        if [ -z "$JOB_ID" ] || [ "$JOB_ID" = "null" ]; then
+          echo "::error::Deploy command did not return a valid job ID"
+          echo "$DEPLOY_OUTPUT"
+          exit 1
+        fi
+
+        echo "Deployment started with Job ID: $JOB_ID"
+        echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
+
+    - name: Notify deployment started
+      id: notify
+      shell: bash
+      continue-on-error: true
+      env:
+        SLACK_TOKEN: ${{ inputs.slack_token }}
+        SF_BASE_URL: ${{ inputs.sf_base_url }}
+      run: |
+        JOB_ID="${{ steps.deploy.outputs.job_id }}"
+        BRANCH="${{ github.ref_name }}"
+        ACTOR="${{ github.actor }}"
+        COMMIT_SHA="${{ github.sha }}"
+        SHORT_SHA=$(printf '%.7s' "$COMMIT_SHA")
+        SLACK_CHANNEL="${{ inputs.slack_channel }}"
+        GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+        REPO="${{ github.repository }}"
+        REPO_NAME="${REPO##*/}"
+        ENVIRONMENT="${{ inputs.environment_name }}"
+
+        if [ "${{ inputs.deploy_mode }}" = "deletions" ]; then
+          ICON="🗑️"
+          MODE_LABEL="Deletions"
+        else
+          ICON="🚀"
+          MODE_LABEL="Additions"
+        fi
+
+        SF_BUTTON="null"
+        if [ -n "$SF_BASE_URL" ]; then
+          SF_DEPLOY_URL="${SF_BASE_URL}/lightning/setup/DeployStatus/page?address=%2Fchangemgmt%2FmonitorDeploymentsDetails.apexp%3FasyncId%3D${JOB_ID}"
+          SF_BUTTON=$(jq -n --arg url "$SF_DEPLOY_URL" \
+            '{type: "button", text: {type: "plain_text", text: "🔍 Track in Salesforce"}, url: $url, style: "primary"}')
+        fi
+
+        PAYLOAD=$(jq -n \
+          --arg channel "$SLACK_CHANNEL" \
+          --arg fallback "Salesforce delta deployment ($MODE_LABEL) started in $ENVIRONMENT" \
+          --arg title "$ICON *Salesforce Deployment Started (Delta — $MODE_LABEL)*" \
+          --arg repo_name "$REPO_NAME" \
+          --arg branch "$BRANCH" \
+          --arg commit_url "$COMMIT_URL" \
+          --arg short_sha "$SHORT_SHA" \
+          --arg actor "$ACTOR" \
+          --arg job_id "$JOB_ID" \
+          --arg run_url "$GITHUB_RUN_URL" \
+          --argjson sf_button "$SF_BUTTON" \
+          '{
+            channel: $channel,
+            text: $fallback,
+            blocks: [
+              {
+                type: "section",
+                text: {type: "mrkdwn", text: $title}
+              },
+              {
+                type: "section",
+                fields: [
+                  {type: "mrkdwn", text: ("*Repo:*\n" + $repo_name)},
+                  {type: "mrkdwn", text: ("*Branch:*\n" + $branch)},
+                  {type: "mrkdwn", text: ("*Commit:*\n<" + $commit_url + "|`" + $short_sha + "`>")},
+                  {type: "mrkdwn", text: ("*Started by:*\n" + $actor)},
+                  {type: "mrkdwn", text: ("*Job ID:*\n`" + $job_id + "`")}
+                ]
+              },
+              {
+                type: "context",
+                elements: [{type: "mrkdwn", text: "Deployment is running asynchronously. You will be notified when it completes."}]
+              },
+              {
+                type: "actions",
+                elements: (
+                  [
+                    {type: "button", text: {type: "plain_text", text: "📋 View Workflow"}, url: $run_url},
+                    {type: "button", text: {type: "plain_text", text: "🔗 View Commit"}, url: $commit_url}
+                  ]
+                  + (if $sf_button != null then [$sf_button] else [] end)
+                )
+              }
+            ]
+          }')
+
+        RESPONSE=$(curl -s -X POST https://slack.com/api/chat.postMessage \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer $SLACK_TOKEN" \
+          -d "$PAYLOAD")
+
+        if [ "$(printf '%s' "$RESPONSE" | jq -r '.ok')" != "true" ]; then
+          echo "::warning::Slack notification failed: $(printf '%s' "$RESPONSE" | jq -r '.error // "unknown"')"
+        fi
+
+        THREAD_TS=$(printf '%s' "$RESPONSE" | jq -r '.ts // empty')
+        if [ -n "$THREAD_TS" ]; then
+          echo "Slack thread_ts: $THREAD_TS"
+          echo "thread_ts=$THREAD_TS" >> "$GITHUB_OUTPUT"
+        fi

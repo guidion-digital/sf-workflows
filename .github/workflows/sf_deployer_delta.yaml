@@ -1,0 +1,268 @@
+name: "Deploy to the <inputs.environment_name> environment (delta)"
+
+# Delta-deploy reusable workflow.
+#
+# Diffs package.xml/destructiveChanges.xml from the `deployed/<environment_name>`
+# checkpoint tag (only moved by deployment_poller.yaml on a confirmed Succeeded
+# deploy) to HEAD, falling back to HEAD^ if the tag doesn't exist yet. A failed
+# deploy's changes thus stay in scope for the next delta.
+#
+# Additions deploy async; deletions submit right after. Salesforce queues
+# deploys per org in submission order, so no polling is needed to sequence them.
+#
+# Shared per-leg logic (auth, test preview, async deploy, "started" Slack
+# notification) lives in the sf-deploy-manifest composite action. The
+# track-deployment job below assembles both legs' job_id/thread_ts into a
+# single pending-deployment artifact for the shared poller.
+
+on:
+  workflow_call:
+    inputs:
+      slack_channel:
+        description: Channel to notify about a deployment
+        type: string
+        required: false
+        default: 'tectonic-code'
+      environment_name:
+        description: GH environment holding information needed to deploy (also used as the Salesforce org alias)
+        type: string
+        required: true
+      branch:
+        description: Branch to checkout
+        type: string
+        required: false
+        default: ${{ github.ref_name }}
+      sf_login_url:
+        description: Salesforce login URL
+        type: string
+        required: false
+      sf_username:
+        description: Salesforce username
+        type: string
+        required: false
+      sf_client_id:
+        description: Salesforce consumer key
+        type: string
+        required: false
+    secrets:
+      SF_CLIENT_ID:
+        description: Salesforce consumer key
+        required: false
+      SF_CLIENT_KEY:
+        description: Salesforce client key (base64 encoded)
+        required: false
+      SLACK_TOKEN:
+        description: Slack token
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-delta-${{ inputs.environment_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate-delta:
+    runs-on: ubuntu-latest
+    container: salesforce/cli:latest-slim
+    outputs:
+      has_additions: ${{ steps.delta.outputs.has_additions }}
+      has_deletions: ${{ steps.delta.outputs.has_deletions }}
+      sf_base_url: ${{ steps.resolve_url.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+
+      - name: Mark workspace as safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install sfdx-git-delta plugin
+        run: echo y | sf plugins install sfdx-git-delta
+
+      - name: Generate delta manifests
+        id: delta
+        run: |
+          TAG="refs/tags/deployed/${{ inputs.environment_name }}"
+          if git rev-parse --verify --quiet "$TAG" >/dev/null; then
+            FROM_REF="$TAG"
+            echo "Found checkpoint tag deployed/${{ inputs.environment_name }}, using it as delta base"
+          else
+            FROM_REF="HEAD^"
+            echo "No deployed/${{ inputs.environment_name }} tag yet (first run) — falling back to HEAD^"
+          fi
+          sf sgd:source:delta --to "HEAD" --from "$FROM_REF" --output .
+
+          echo "Generated package/package.xml:"
+          cat package/package.xml
+
+          echo "Generated destructiveChanges/destructiveChanges.xml:"
+          cat destructiveChanges/destructiveChanges.xml
+
+          if grep -q '<types>' package/package.xml; then
+            echo "has_additions=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_additions=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if grep -q '<types>' destructiveChanges/destructiveChanges.xml; then
+            echo "has_deletions=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_deletions=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve Salesforce base URL
+        id: resolve_url
+        env:
+          SF_BASE_URL_DEV: ${{ vars.SF_BASE_URL_DEV }}
+          SF_BASE_URL_ACC: ${{ vars.SF_BASE_URL_ACC }}
+          SF_BASE_URL_PROD: ${{ vars.SF_BASE_URL_PROD }}
+        run: |
+          case "${{ inputs.environment_name }}" in
+            dev)  echo "url=$SF_BASE_URL_DEV" >> "$GITHUB_OUTPUT" ;;
+            acc)  echo "url=$SF_BASE_URL_ACC" >> "$GITHUB_OUTPUT" ;;
+            prod) echo "url=$SF_BASE_URL_PROD" >> "$GITHUB_OUTPUT" ;;
+            *)    echo "url=" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Upload delta manifests
+        uses: actions/upload-artifact@v7
+        with:
+          name: delta-manifests-${{ github.run_id }}
+          path: |
+            package/
+            destructiveChanges/
+          retention-days: 1
+
+  deploy-additions:
+    needs: generate-delta
+    if: needs.generate-delta.outputs.has_additions == 'true'
+    environment: ${{ inputs.environment_name }}
+    runs-on: ubuntu-latest
+    container: salesforce/cli:latest-slim
+    outputs:
+      job_id: ${{ steps.deploy.outputs.job_id }}
+      thread_ts: ${{ steps.deploy.outputs.thread_ts }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Download delta manifests
+        uses: actions/download-artifact@v8
+        with:
+          name: delta-manifests-${{ github.run_id }}
+
+      - name: Deploy additions
+        id: deploy
+        uses: guidion-digital/sf-workflows/.github/actions/sf-deploy-manifest@v1
+        with:
+          deploy_mode: additions
+          environment_name: ${{ inputs.environment_name }}
+          sf_login_url: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
+          sf_username: ${{ inputs.sf_username || vars.SF_USERNAME }}
+          sf_client_id: ${{ inputs.sf_client_id || vars.SF_CLIENT_ID || secrets.SF_CLIENT_ID }}
+          sf_client_key: ${{ secrets.SF_CLIENT_KEY }}
+          slack_token: ${{ secrets.SLACK_TOKEN }}
+          slack_channel: ${{ inputs.slack_channel }}
+          sf_base_url: ${{ needs.generate-delta.outputs.sf_base_url }}
+
+  deploy-deletions:
+    needs: [generate-delta, deploy-additions]
+    if: |
+      always() &&
+      needs.generate-delta.outputs.has_deletions == 'true' &&
+      (needs.deploy-additions.result == 'success' || needs.deploy-additions.result == 'skipped')
+    environment: ${{ inputs.environment_name }}
+    runs-on: ubuntu-latest
+    container: salesforce/cli:latest-slim
+    outputs:
+      job_id: ${{ steps.deploy.outputs.job_id }}
+      thread_ts: ${{ steps.deploy.outputs.thread_ts }}
+    steps:
+      - name: Download delta manifests
+        uses: actions/download-artifact@v8
+        with:
+          name: delta-manifests-${{ github.run_id }}
+
+      - name: Deploy deletions
+        id: deploy
+        uses: guidion-digital/sf-workflows/.github/actions/sf-deploy-manifest@v1
+        with:
+          deploy_mode: deletions
+          environment_name: ${{ inputs.environment_name }}
+          sf_login_url: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
+          sf_username: ${{ inputs.sf_username || vars.SF_USERNAME }}
+          sf_client_id: ${{ inputs.sf_client_id || vars.SF_CLIENT_ID || secrets.SF_CLIENT_ID }}
+          sf_client_key: ${{ secrets.SF_CLIENT_KEY }}
+          slack_token: ${{ secrets.SLACK_TOKEN }}
+          slack_channel: ${{ inputs.slack_channel }}
+          sf_base_url: ${{ needs.generate-delta.outputs.sf_base_url }}
+
+  track-deployment:
+    needs: [generate-delta, deploy-additions, deploy-deletions]
+    if: always() && (needs.deploy-additions.result != 'skipped' || needs.deploy-deletions.result != 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build combined deployment info
+        run: |
+          # For each leg: 'success' -> {mode, job_id, thread_ts, resolved:false} to be polled.
+          #               'failure'/'cancelled' -> {mode, job_id:null, thread_ts, resolved:true, status:"Failed"}
+          #                 (submission itself failed — already known, nothing to poll, but still
+          #                 needs its own Slack completion reply in its own thread).
+          #               'skipped' -> omit (leg wasn't part of this delta).
+          LEGS="[]"
+
+          add_leg() {
+            local mode="$1" result="$2" job_id="$3" thread_ts="$4"
+            case "$result" in
+              success)
+                LEG=$(jq -n --arg mode "$mode" --arg job_id "$job_id" --arg thread_ts "$thread_ts" \
+                  '{mode: $mode, job_id: $job_id, thread_ts: $thread_ts, resolved: false}')
+                ;;
+              skipped)
+                return 0
+                ;;
+              *)
+                LEG=$(jq -n --arg mode "$mode" --arg thread_ts "$thread_ts" \
+                  '{mode: $mode, job_id: null, thread_ts: $thread_ts, resolved: true, status: "Failed"}')
+                ;;
+            esac
+            LEGS=$(jq -c --argjson leg "$LEG" '. + [$leg]' <<< "$LEGS")
+          }
+
+          add_leg "additions" "${{ needs.deploy-additions.result }}" "${{ needs.deploy-additions.outputs.job_id }}" "${{ needs.deploy-additions.outputs.thread_ts }}"
+          add_leg "deletions" "${{ needs.deploy-deletions.result }}" "${{ needs.deploy-deletions.outputs.job_id }}" "${{ needs.deploy-deletions.outputs.thread_ts }}"
+
+          echo "Legs:"
+          echo "$LEGS" | jq '.'
+
+          jq -n \
+            --arg environment "${{ inputs.environment_name }}" \
+            --arg target_org "${{ inputs.environment_name }}" \
+            --arg slack_channel "${{ inputs.slack_channel }}" \
+            --arg commit_sha "${{ github.sha }}" \
+            --arg github_run_id "${{ github.run_id }}" \
+            --arg github_run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --argjson legs "$LEGS" \
+            '{environment: $environment, target_org: $target_org, slack_channel: $slack_channel, commit_sha: $commit_sha, github_run_id: $github_run_id, github_run_url: $github_run_url, legs: $legs}' \
+            > deployment-info.json
+
+          echo "Combined deployment info:"
+          cat deployment-info.json
+
+      - name: Upload deployment info artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pending-deployment-${{ github.run_id }}
+          path: deployment-info.json
+          retention-days: 1
+
+  # NOTE: The deployment_poller.yaml handles completion notifications
+  # after each leg's async deployment succeeds or fails (into that leg's own
+  # Slack thread), and moves the deployed/<environment_name> checkpoint tag
+  # only once every leg in this run has resolved and all of them succeeded.

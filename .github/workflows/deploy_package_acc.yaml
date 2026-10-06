@@ -114,7 +114,7 @@ jobs:
         run: npx sf util package install-if-upgrade --version-id ${{ steps.resolve_version.outputs.version_id }}
       - name: Upload Apex test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: apex-test-results
           path: tests
