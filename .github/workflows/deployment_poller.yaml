@@ -409,6 +409,12 @@ jobs:
           echo "Updated deployment info (legs still pending):"
           cat deployment-info.json
 
+      - name: Delete superseded artifact before re-upload
+        if: steps.parse.outputs.valid == 'true' && steps.poll.outputs.all_resolved != 'true'
+        run: |
+          gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/${{ matrix.artifact_id }}" \
+            || echo "::warning::Failed to delete superseded artifact ${{ matrix.artifact_name }} (id ${{ matrix.artifact_id }})"
+
       - name: Re-upload deployment info artifact
         if: steps.parse.outputs.valid == 'true' && steps.poll.outputs.all_resolved != 'true'
         uses: actions/upload-artifact@v7
