@@ -250,6 +250,7 @@ runs:
           --arg channel "$SLACK_CHANNEL" \
           --arg fallback "Salesforce delta deployment ($MODE_LABEL) started in $ENVIRONMENT" \
           --arg title "$ICON *Salesforce Deployment Started (Delta — $MODE_LABEL)*" \
+          --arg env "$ENVIRONMENT" \
           --arg repo_name "$REPO_NAME" \
           --arg branch "$BRANCH" \
           --arg commit_url "$COMMIT_URL" \
@@ -269,14 +270,17 @@ runs:
               },
               {
                 type: "section",
-                fields: [
-                  {type: "mrkdwn", text: ("*Repo:*\n" + $repo_name)},
-                  {type: "mrkdwn", text: ("*Branch:*\n" + $branch)},
-                  {type: "mrkdwn", text: ("*Commit:*\n<" + $commit_url + "|`" + $short_sha + "`>")},
-                  {type: "mrkdwn", text: ("*Started by:*\n" + $actor)},
-                  {type: "mrkdwn", text: ("*Job ID:*\n`" + $job_id + "`")},
-                  {type: "mrkdwn", text: ("*Test Level:*\n" + $test_level)}
-                ]
+                fields: (
+                  [{type: "mrkdwn", text: ("*Environment:*\n" + $env)}]
+                  + (if $branch != $env then [{type: "mrkdwn", text: ("*Branch:*\n" + $branch)}] else [] end)
+                  + [
+                    {type: "mrkdwn", text: ("*Repo:*\n" + $repo_name)},
+                    {type: "mrkdwn", text: ("*Commit:*\n<" + $commit_url + "|`" + $short_sha + "`>")},
+                    {type: "mrkdwn", text: ("*Started by:*\n" + $actor)},
+                    {type: "mrkdwn", text: ("*Job ID:*\n`" + $job_id + "`")},
+                    {type: "mrkdwn", text: ("*Test Level:*\n" + $test_level)}
+                  ]
+                )
               },
               {
                 type: "context",

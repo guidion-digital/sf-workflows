@@ -265,9 +265,10 @@ jobs:
                   type: "section",
                   fields: (
                     [
-                      {type: "mrkdwn", text: ("*Repo:*\n" + $repo_name)},
-                      {type: "mrkdwn", text: ("*Branch:*\n" + $branch)}
+                      {type: "mrkdwn", text: ("*Environment:*\n" + $env)},
+                      {type: "mrkdwn", text: ("*Repo:*\n" + $repo_name)}
                     ]
+                    + (if $branch != $env then [{type: "mrkdwn", text: ("*Branch:*\n" + $branch)}] else [] end)
                     + (if $pr_field != null then [$pr_field] else [] end)
                     + [
                       {type: "mrkdwn", text: ("*Commit:*\n<" + $commit_url + "|`" + $short_sha + "`>")},
