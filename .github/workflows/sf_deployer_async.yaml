@@ -78,6 +78,7 @@ jobs:
     container: salesforce/cli:latest-slim
     steps:
       - name: Checkout
+        id: checkout
         uses: actions/checkout@v4.2.2
         with:
           ref: ${{ inputs.branch }}
@@ -171,7 +172,7 @@ jobs:
             --arg target_org "${{ inputs.sf_target_org }}" \
             --arg test_level "$TEST_LEVEL" \
             --arg source_dir "${{ inputs.source_dir }}" \
-            --arg commit_sha "${{ github.sha }}" \
+            --arg commit_sha "${{ steps.checkout.outputs.commit }}" \
             --arg branch "${{ inputs.branch }}" \
             --arg actor "${{ github.actor }}" \
             --arg slack_channel "${{ inputs.slack_channel }}" \
@@ -201,11 +202,11 @@ jobs:
           ENVIRONMENT="${{ inputs.environment_name }}"
           BRANCH="${{ inputs.branch }}"
           ACTOR="${{ github.actor }}"
-          COMMIT_SHA="${{ github.sha }}"
+          COMMIT_SHA="${{ steps.checkout.outputs.commit }}"
           SHORT_SHA=$(printf '%.7s' "$COMMIT_SHA")
           SLACK_CHANNEL="${{ inputs.slack_channel }}"
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+          COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ steps.checkout.outputs.commit }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
           REPO="${{ github.repository }}"
           REPO_NAME="${REPO##*/}"
