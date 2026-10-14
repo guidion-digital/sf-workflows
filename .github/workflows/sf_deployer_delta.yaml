@@ -74,8 +74,10 @@ jobs:
       has_additions: ${{ steps.delta.outputs.has_additions }}
       has_deletions: ${{ steps.delta.outputs.has_deletions }}
       sf_base_url: ${{ steps.resolve_url.outputs.url }}
+      commit_sha: ${{ steps.checkout.outputs.commit }}
     steps:
       - name: Checkout
+        id: checkout
         uses: actions/checkout@v4.2.2
         with:
           ref: ${{ inputs.branch }}
@@ -166,6 +168,7 @@ jobs:
         uses: guidion-digital/sf-workflows/.github/actions/sf-deploy-manifest@v1
         with:
           deploy_mode: additions
+          commit_sha: ${{ needs.generate-delta.outputs.commit_sha }}
           environment_name: ${{ inputs.environment_name }}
           sf_login_url: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
           sf_username: ${{ inputs.sf_username || vars.SF_USERNAME }}
@@ -199,6 +202,7 @@ jobs:
         uses: guidion-digital/sf-workflows/.github/actions/sf-deploy-manifest@v1
         with:
           deploy_mode: deletions
+          commit_sha: ${{ needs.generate-delta.outputs.commit_sha }}
           environment_name: ${{ inputs.environment_name }}
           sf_login_url: ${{ inputs.sf_login_url || vars.SF_LOGIN_URL }}
           sf_username: ${{ inputs.sf_username || vars.SF_USERNAME }}
@@ -251,7 +255,7 @@ jobs:
             --arg environment "${{ inputs.environment_name }}" \
             --arg target_org "${{ inputs.environment_name }}" \
             --arg slack_channel "${{ inputs.slack_channel }}" \
-            --arg commit_sha "${{ github.sha }}" \
+            --arg commit_sha "${{ needs.generate-delta.outputs.commit_sha }}" \
             --arg github_run_id "${{ github.run_id }}" \
             --arg github_run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --argjson legs "$LEGS" \

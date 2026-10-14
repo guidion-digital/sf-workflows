@@ -41,6 +41,10 @@ inputs:
     description: Salesforce test level for the async deploy (defaults to RunRelevantTests)
     required: false
     default: ''
+  commit_sha:
+    description: Commit SHA that was checked out and deployed, used for the Slack notification (defaults to github.sha)
+    required: false
+    default: ''
 
 outputs:
   job_id:
@@ -222,11 +226,11 @@ runs:
         TEST_LEVEL="${{ steps.deploy.outputs.test_level }}"
         BRANCH="${{ github.ref_name }}"
         ACTOR="${{ github.actor }}"
-        COMMIT_SHA="${{ github.sha }}"
+        COMMIT_SHA="${{ inputs.commit_sha || github.sha }}"
         SHORT_SHA=$(printf '%.7s' "$COMMIT_SHA")
         SLACK_CHANNEL="${{ inputs.slack_channel }}"
         GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+        COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/$COMMIT_SHA"
         REPO="${{ github.repository }}"
         REPO_NAME="${REPO##*/}"
         ENVIRONMENT="${{ inputs.environment_name }}"
