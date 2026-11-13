@@ -86,7 +86,11 @@ jobs:
           github_action_config.handle_push_trigger: 'true'
           github_action_config.push_commands: '["/review"]'
           github_action_config.fail_on_tool_errors: 'false'
+          # PR-Agent reads a different extra_instructions setting per command.
+          # The same standards must be passed to each, or /ask and /improve ignore them.
           pr_reviewer.extra_instructions: ${{ steps.standards.outputs.instructions }}
+          pr_questions.extra_instructions: ${{ steps.standards.outputs.instructions }}
+          pr_code_suggestions.extra_instructions: ${{ steps.standards.outputs.instructions }}
           pr_reviewer.num_max_findings: ${{ inputs.max_findings }}
           pr_reviewer.inline_key_issues: ${{ inputs.inline_findings }}
           pr_reviewer.persistent_comment: 'true'
