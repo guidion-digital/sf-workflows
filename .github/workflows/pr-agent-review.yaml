@@ -1,0 +1,115 @@
+name: AI PR review (PR-Agent)
+
+# Reusable AI review workflow. Reviews pull requests with PR-Agent against the Guidion
+# sf-code-review skill and org-wide rules from guidion-digital/tectonic-cursor, and keeps a
+# single review comment up to date on the PR. It never fails the check.
+#
+# Consuming repos should call this on pull requests and PR comments:
+#
+#   name: code-review
+#   on:
+#     pull_request:
+#       types: [opened, reopened, ready_for_review, synchronize]
+#     issue_comment:
+#       types: [created]   # enables /review, /ask and /improve in PR comments
+#   jobs:
+#     review:
+#       uses: guidion-digital/sf-workflows/.github/workflows/pr-agent-review.yaml@v1
+#       secrets:
+#         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+#
+# Requirements:
+#   - tectonic-cursor's Settings > Actions > General > Access must allow repositories in the
+#     guidion-digital organization. No checkout token is needed.
+#   - The org Actions policy must allow docker://pragent/pr-agent.
+#
+# The review standards always come from tectonic-cursor's prod branch, so a merged change
+# to the skill or rules applies to the next review without a release here.
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: OpenAI model PR-Agent uses for reviews
+        type: string
+        required: false
+        default: 'gpt-5.6'
+      max_findings:
+        description: Maximum number of findings in one review
+        type: string
+        required: false
+        default: '10'
+      inline_findings:
+        description: Also post each finding as an inline comment on the changed line
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      OPENAI_API_KEY:
+        description: OpenAI API key used by PR-Agent
+        required: true
+
+jobs:
+  review:
+    # Skip bots, drafts, comments on plain issues, and fork PRs (which get no secrets).
+    if: >-
+      github.event.sender.type != 'Bot'
+      && github.event.pull_request.draft != true
+      && (github.event_name != 'issue_comment' || github.event.issue.pull_request)
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    concurrency:
+      group: pr-agent-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Load Guidion review standards
+        id: standards
+        uses: guidion-digital/tectonic-cursor/.github/actions/review-standards@prod
+
+      - name: Run PR-Agent
+        id: pragent
+        continue-on-error: true
+        uses: docker://pragent/pr-agent:0.50.0-github_action
+        env:
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          config.model: ${{ inputs.model }}
+          config.fallback_models: '[]'
+          github_action_config.auto_review: 'true'
+          github_action_config.auto_describe: 'false'
+          github_action_config.auto_improve: 'false'
+          github_action_config.handle_push_trigger: 'true'
+          github_action_config.push_commands: '["/review"]'
+          github_action_config.fail_on_tool_errors: 'false'
+          # PR-Agent reads a different extra_instructions setting per command.
+          # The same standards must be passed to each, or /ask and /improve ignore them.
+          pr_reviewer.extra_instructions: ${{ steps.standards.outputs.instructions }}
+          pr_questions.extra_instructions: ${{ steps.standards.outputs.instructions }}
+          pr_code_suggestions.extra_instructions: ${{ steps.standards.outputs.instructions }}
+          pr_reviewer.num_max_findings: ${{ inputs.max_findings }}
+          pr_reviewer.inline_key_issues: ${{ inputs.inline_findings }}
+          pr_reviewer.persistent_comment: 'true'
+          pr_reviewer.require_ticket_analysis_review: 'false'
+          pr_reviewer.require_estimate_effort_to_review: 'false'
+
+      - name: Summary
+        if: always()
+        env:
+          DIGEST: ${{ steps.standards.outputs.digest }}
+          OUTCOME: ${{ steps.pragent.outcome }}
+          MODEL: ${{ inputs.model }}
+        run: |
+          {
+            echo "### AI PR review"
+            echo "- PR-Agent: \`${OUTCOME:-skipped}\`"
+            echo "- Model: \`${MODEL}\`"
+            echo "- Standards: tectonic-cursor@prod, sha256 \`${DIGEST:0:12}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$OUTCOME" == "failure" ]]; then
+            echo "::warning::PR-Agent failed; no review was posted. See the 'Run PR-Agent' step log."
+          fi
