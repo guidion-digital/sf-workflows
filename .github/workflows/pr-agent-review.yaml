@@ -1,7 +1,7 @@
 name: AI PR review (PR-Agent)
 
 # Reusable AI review workflow. Reviews pull requests with PR-Agent against the Guidion
-# sf-code-review skill and org-wide rules from guidion-digital/tectonic-cursor, and keeps a
+# sf-code-review skill and org-wide rules from guidion-digital/salesforce-skills, and keeps a
 # single review comment up to date on the PR. It never fails the check.
 #
 # Consuming repos should call this on pull requests and PR comments:
@@ -19,11 +19,11 @@ name: AI PR review (PR-Agent)
 #         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 #
 # Requirements:
-#   - tectonic-cursor's Settings > Actions > General > Access must allow repositories in the
+#   - The salesforce-skills repo's Settings > Actions > General > Access must allow repositories in the
 #     guidion-digital organization. No checkout token is needed.
 #   - The org Actions policy must allow docker://pragent/pr-agent.
 #
-# The review standards always come from tectonic-cursor's prod branch, so a merged change
+# The review standards always come from the salesforce-skills prod branch, so a merged change
 # to the skill or rules applies to the next review without a release here.
 
 on:
@@ -69,7 +69,7 @@ jobs:
     steps:
       - name: Load Guidion review standards
         id: standards
-        uses: guidion-digital/tectonic-cursor/.github/actions/review-standards@prod
+        uses: guidion-digital/salesforce-skills/.github/actions/review-standards@prod
 
       - name: Run PR-Agent
         id: pragent
@@ -108,7 +108,7 @@ jobs:
             echo "### AI PR review"
             echo "- PR-Agent: \`${OUTCOME:-skipped}\`"
             echo "- Model: \`${MODEL}\`"
-            echo "- Standards: tectonic-cursor@prod, sha256 \`${DIGEST:0:12}\`"
+            echo "- Standards: salesforce-skills@prod, sha256 \`${DIGEST:0:12}\`"
           } >> "$GITHUB_STEP_SUMMARY"
           if [[ "$OUTCOME" == "failure" ]]; then
             echo "::warning::PR-Agent failed; no review was posted. See the 'Run PR-Agent' step log."
